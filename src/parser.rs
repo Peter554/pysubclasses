@@ -250,11 +250,22 @@ pub fn resolve_import(
                     let imported_name = alias.as_ref().unwrap_or(n);
                     if imported_name == name {
                         // Resolve relative import
-                        let base = resolve_relative_import(current_module, *level)?;
+                        // In Python, level=1 always means "current package" (parent of current module)
+                        // So we always need to go up one extra level to convert from module to package
+                        let effective_level = level + 1;
+                        let base = resolve_relative_import(current_module, effective_level)?;
                         return Some(if let Some(m) = rel_module {
-                            format!("{base}.{m}.{n}")
+                            if base.is_empty() {
+                                format!("{m}.{n}")
+                            } else {
+                                format!("{base}.{m}.{n}")
+                            }
                         } else {
-                            format!("{base}.{n}")
+                            if base.is_empty() {
+                                n.clone()
+                            } else {
+                                format!("{base}.{n}")
+                            }
                         });
                     }
                 }
@@ -270,23 +281,29 @@ pub fn resolve_import(
 /// # Arguments
 ///
 /// * `current_module` - The current module path (e.g., "foo.bar.baz")
-/// * `level` - Number of dots in the relative import
+/// * `level` - Number of dots in the relative import (from Python AST)
 ///
 /// # Returns
 ///
-/// The base module path after going up `level` levels.
-fn resolve_relative_import(current_module: &str, level: usize) -> Option<String> {
-    let parts: Vec<&str> = current_module.split('.').collect();
+/// The base module path. In Python, level=1 means current package, level=2 means parent, etc.
+/// So we go up `level - 1` levels.
+pub fn resolve_relative_import(current_module: &str, level: usize) -> Option<String> {
+    if level == 0 {
+        return None; // Not a relative import
+    }
 
-    if level > parts.len() {
+    let parts: Vec<&str> = current_module.split('.').collect();
+    let levels_to_go_up = level - 1;
+
+    if levels_to_go_up > parts.len() {
         return None; // Invalid relative import
     }
 
-    if level == parts.len() {
+    if levels_to_go_up == parts.len() {
         return Some(String::new()); // Top level
     }
 
-    Some(parts[..parts.len() - level].join("."))
+    Some(parts[..parts.len() - levels_to_go_up].join("."))
 }
 
 #[cfg(test)]
@@ -295,19 +312,28 @@ mod tests {
 
     #[test]
     fn test_resolve_relative_import() {
+        // level=1 means current package (no going up)
         assert_eq!(
             resolve_relative_import("foo.bar.baz", 1),
-            Some("foo.bar".to_string())
+            Some("foo.bar.baz".to_string())
         );
+        // level=2 means parent package (go up 1)
         assert_eq!(
             resolve_relative_import("foo.bar.baz", 2),
-            Some("foo".to_string())
+            Some("foo.bar".to_string())
         );
+        // level=3 means grandparent package (go up 2)
         assert_eq!(
             resolve_relative_import("foo.bar.baz", 3),
+            Some("foo".to_string())
+        );
+        // level=4 means go up 3 levels (to top)
+        assert_eq!(
+            resolve_relative_import("foo.bar.baz", 4),
             Some(String::new())
         );
-        assert_eq!(resolve_relative_import("foo.bar.baz", 4), None);
+        // level=5 is invalid (can't go above top level)
+        assert_eq!(resolve_relative_import("foo.bar.baz", 5), None);
     }
 
     #[test]
@@ -339,6 +365,32 @@ mod tests {
         assert_eq!(
             resolve_import("zoo", &imports, "test.module"),
             Some("zoo".to_string())
+        );
+
+        // Test relative imports
+        let rel_imports = vec![
+            Import::RelativeFrom {
+                level: 1,
+                module: Some("base".to_string()),
+                names: vec![("Animal".to_string(), None)],
+            },
+            Import::RelativeFrom {
+                level: 1,
+                module: None,
+                names: vec![("Cat".to_string(), None)],
+            },
+        ];
+
+        // from .base import Animal (in mypackage.dog)
+        assert_eq!(
+            resolve_import("Animal", &rel_imports, "mypackage.dog"),
+            Some("mypackage.base.Animal".to_string())
+        );
+
+        // from . import Cat (in mypackage.dog - imports from parent package)
+        assert_eq!(
+            resolve_import("Cat", &rel_imports, "mypackage.dog"),
+            Some("mypackage.Cat".to_string())
         );
     }
 }

@@ -44,6 +44,10 @@ pub struct ClassRegistry {
 
     /// Map from module path to imports in that module
     imports: HashMap<String, Vec<Import>>,
+
+    /// Map from ClassId (re-exported location) to ClassId (original location)
+    /// E.g., foo.Bar -> foo._internal.Bar
+    re_exports: HashMap<ClassId, ClassId>,
 }
 
 impl ClassRegistry {
@@ -53,6 +57,7 @@ impl ClassRegistry {
             classes: HashMap::new(),
             name_index: HashMap::new(),
             imports: HashMap::new(),
+            re_exports: HashMap::new(),
         }
     }
 
@@ -60,11 +65,92 @@ impl ClassRegistry {
     pub fn add_file(&mut self, parsed: ParsedFile) {
         // Store imports for this module
         self.imports
-            .insert(parsed.module_path.clone(), parsed.imports);
+            .insert(parsed.module_path.clone(), parsed.imports.clone());
 
         // Add all classes
         for class in parsed.classes {
             self.add_class(class);
+        }
+
+        // Track re-exports: when we import a class, it may be re-exported
+        // We'll do a second pass after all files are added
+    }
+
+    /// Second pass: build re-export mappings after all classes are registered.
+    /// This should be called after all files have been added.
+    ///
+    /// This may need multiple iterations to resolve transitive re-exports
+    /// (e.g., A re-exports from B, B re-exports from C).
+    pub fn build_reexports(&mut self) {
+        // Iterate until no new re-exports are added (fixed-point iteration)
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let mut reexports_to_add = Vec::new();
+
+            for (module_path, imports) in &self.imports {
+            for import in imports {
+                match import {
+                    Import::From { module, names } => {
+                        for (name, alias) in names {
+                            // The exported name is the alias if present, otherwise the original name
+                            let exported_name = alias.as_ref().unwrap_or(name);
+
+                            // Try to find the original class
+                            let original_module = module.clone();
+                            let original_id = ClassId::new(original_module.clone(), name.clone());
+
+                            // Check if the class exists directly or as a re-export
+                            if self.classes.contains_key(&original_id) || self.re_exports.contains_key(&original_id) {
+                                // Register the re-export
+                                let reexport_id = ClassId::new(module_path.clone(), exported_name.clone());
+                                reexports_to_add.push((reexport_id, original_id));
+                            }
+                        }
+                    }
+                    Import::RelativeFrom { level, module: rel_module, names } => {
+                        // Resolve the relative import
+                        if let Some(base) = crate::parser::resolve_relative_import(module_path, *level) {
+                            for (name, alias) in names {
+                                let exported_name = alias.as_ref().unwrap_or(name);
+
+                                // Build the full module path
+                                let original_module = if let Some(m) = rel_module {
+                                    if base.is_empty() {
+                                        m.clone()
+                                    } else {
+                                        format!("{}.{}", base, m)
+                                    }
+                                } else {
+                                    base.clone()
+                                };
+
+                                let original_id = ClassId::new(original_module, name.clone());
+
+                                // Check if the class exists directly or as a re-export
+                                // (we'll resolve the chain later)
+                                if self.classes.contains_key(&original_id) || self.re_exports.contains_key(&original_id) {
+                                    let reexport_id = ClassId::new(module_path.clone(), exported_name.clone());
+                                    reexports_to_add.push((reexport_id, original_id));
+                                }
+                            }
+                        }
+                    }
+                    Import::Module { .. } => {
+                        // Module imports don't re-export classes
+                    }
+                }
+            }
+        }
+
+            // Add all the re-exports
+            for (reexport_id, original_id) in reexports_to_add {
+                // Only add if it's new
+                if !self.re_exports.contains_key(&reexport_id) {
+                    self.re_exports.insert(reexport_id, original_id);
+                    changed = true;
+                }
+            }
         }
     }
 
@@ -115,6 +201,36 @@ impl ClassRegistry {
         self.classes.get(id)
     }
 
+    /// Resolves a ClassId through re-exports to find the canonical ClassId.
+    /// If the given ClassId is a re-export, follows the chain to find the original.
+    /// Otherwise returns the input ClassId if it exists in the registry.
+    fn resolve_through_reexports(&self, id: &ClassId) -> Option<ClassId> {
+        let mut current = id.clone();
+        let mut visited = std::collections::HashSet::new();
+
+        // Follow the re-export chain
+        loop {
+            // Prevent infinite loops
+            if visited.contains(&current) {
+                break;
+            }
+            visited.insert(current.clone());
+
+            // Check if this is a re-export
+            if let Some(original) = self.re_exports.get(&current) {
+                current = original.clone();
+            } else {
+                // No more re-exports, check if this exists
+                if self.classes.contains_key(&current) {
+                    return Some(current);
+                }
+                break;
+            }
+        }
+
+        None
+    }
+
     /// Returns all class IDs in the registry.
     pub fn all_class_ids(&self) -> Vec<ClassId> {
         self.classes.keys().cloned().collect()
@@ -140,8 +256,8 @@ impl ClassRegistry {
 
                 // Not imported - might be in the same module
                 let id = ClassId::new(context_module.to_string(), name.clone());
-                if self.classes.contains_key(&id) {
-                    return Some(id);
+                if let Some(resolved) = self.resolve_through_reexports(&id) {
+                    return Some(resolved);
                 }
 
                 // Try to find by name alone (if unambiguous)
@@ -182,16 +298,16 @@ impl ClassRegistry {
                             };
 
                             let id = ClassId::new(full_module, class_name.to_string());
-                            if self.classes.contains_key(&id) {
-                                return Some(id);
+                            if let Some(resolved) = self.resolve_through_reexports(&id) {
+                                return Some(resolved);
                             }
                         }
                     }
 
                     // Try as a direct module path
                     let id = ClassId::new(module_path, class_name.to_string());
-                    if self.classes.contains_key(&id) {
-                        return Some(id);
+                    if let Some(resolved) = self.resolve_through_reexports(&id) {
+                        return Some(resolved);
                     }
                 }
 
@@ -214,8 +330,8 @@ impl ClassRegistry {
         for i in (0..parts.len() - 1).rev() {
             let module_path = parts[..=i].join(".");
             let id = ClassId::new(module_path, class_name.to_string());
-            if self.classes.contains_key(&id) {
-                return Some(id);
+            if let Some(resolved) = self.resolve_through_reexports(&id) {
+                return Some(resolved);
             }
         }
 

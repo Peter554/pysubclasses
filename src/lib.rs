@@ -112,6 +112,9 @@ impl SubclassFinder {
             }
         }
 
+        // Build re-export mappings now that all classes are registered
+        registry.build_reexports();
+
         Ok(Self { root_dir, registry })
     }
 
