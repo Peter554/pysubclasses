@@ -262,19 +262,21 @@ pub fn resolve_import(
                     let imported_name = alias.as_ref().unwrap_or(n);
                     if imported_name == name {
                         // Resolve relative import
-                        let base = resolve_relative_import_with_context(current_module, *level, is_package)?;
+                        let base = resolve_relative_import_with_context(
+                            current_module,
+                            *level,
+                            is_package,
+                        )?;
                         return Some(if let Some(m) = rel_module {
                             if base.is_empty() {
                                 format!("{m}.{n}")
                             } else {
                                 format!("{base}.{m}.{n}")
                             }
+                        } else if base.is_empty() {
+                            n.clone()
                         } else {
-                            if base.is_empty() {
-                                n.clone()
-                            } else {
-                                format!("{base}.{n}")
-                            }
+                            format!("{base}.{n}")
                         });
                     }
                 }

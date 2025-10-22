@@ -1,7 +1,6 @@
 # pysubclasses
 
 [![CI](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml/badge.svg)](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml)
-[![CI](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml/badge.svg)](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml)
 
 A Rust CLI tool and library for finding all subclasses (direct and transitive) of a Python class within a codebase.
 

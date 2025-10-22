@@ -98,8 +98,7 @@ impl SubclassFinder {
         // Parse each file and add to registry
         for file_path in python_files {
             // Convert file path to module path
-            if let Some(module_path) = discovery::file_path_to_module_path(&file_path, &root_dir)
-            {
+            if let Some(module_path) = discovery::file_path_to_module_path(&file_path, &root_dir) {
                 match parser::parse_file(&file_path, &module_path) {
                     Ok(parsed) => {
                         registry.add_file(parsed);
@@ -245,7 +244,6 @@ impl SubclassFinder {
 
 #[cfg(test)]
 mod tests {
-    
 
     // Integration tests will be in tests/ directory
 }

@@ -105,18 +105,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn output_text(
-    class_name: &str,
-    subclasses: &[ClassReference],
-    verbose: bool,
-    root_dir: &PathBuf,
-) {
+fn output_text(class_name: &str, subclasses: &[ClassReference], verbose: bool, root_dir: &PathBuf) {
     if subclasses.is_empty() {
         println!("No subclasses found for '{class_name}'");
         return;
     }
 
-    println!("Found {} subclass(es) of '{}':\n", subclasses.len(), class_name);
+    println!(
+        "Found {} subclass(es) of '{}':\n",
+        subclasses.len(),
+        class_name
+    );
 
     for class_ref in subclasses {
         if verbose {
@@ -132,10 +131,7 @@ fn output_text(
                 rel_path.display()
             );
         } else {
-            println!(
-                "  {} ({})",
-                class_ref.class_name, class_ref.module_path
-            );
+            println!("  {} ({})", class_ref.class_name, class_ref.module_path);
         }
     }
 }

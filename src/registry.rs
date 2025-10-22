@@ -98,66 +98,85 @@ impl ClassRegistry {
             let mut reexports_to_add = Vec::new();
 
             for (module_path, imports) in &self.imports {
-            for import in imports {
-                match import {
-                    Import::From { module, names } => {
-                        for (name, alias) in names {
-                            // The exported name is the alias if present, otherwise the original name
-                            let exported_name = alias.as_ref().unwrap_or(name);
-
-                            // Try to find the original class
-                            let original_module = module.clone();
-                            let original_id = ClassId::new(original_module.clone(), name.clone());
-
-                            // Check if the class exists directly or as a re-export
-                            if self.classes.contains_key(&original_id) || self.re_exports.contains_key(&original_id) {
-                                // Register the re-export
-                                let reexport_id = ClassId::new(module_path.clone(), exported_name.clone());
-                                reexports_to_add.push((reexport_id, original_id));
-                            }
-                        }
-                    }
-                    Import::RelativeFrom { level, module: rel_module, names } => {
-                        // Resolve the relative import
-                        let is_package = self.packages.contains(module_path);
-                        if let Some(base) = crate::parser::resolve_relative_import_with_context(module_path, *level, is_package) {
+                for import in imports {
+                    match import {
+                        Import::From { module, names } => {
                             for (name, alias) in names {
+                                // The exported name is the alias if present, otherwise the original name
                                 let exported_name = alias.as_ref().unwrap_or(name);
 
-                                // Build the full module path
-                                let original_module = if let Some(m) = rel_module {
-                                    if base.is_empty() {
-                                        m.clone()
-                                    } else {
-                                        format!("{}.{}", base, m)
-                                    }
-                                } else {
-                                    base.clone()
-                                };
-
-                                let original_id = ClassId::new(original_module, name.clone());
+                                // Try to find the original class
+                                let original_module = module.clone();
+                                let original_id =
+                                    ClassId::new(original_module.clone(), name.clone());
 
                                 // Check if the class exists directly or as a re-export
-                                // (we'll resolve the chain later)
-                                if self.classes.contains_key(&original_id) || self.re_exports.contains_key(&original_id) {
-                                    let reexport_id = ClassId::new(module_path.clone(), exported_name.clone());
+                                if self.classes.contains_key(&original_id)
+                                    || self.re_exports.contains_key(&original_id)
+                                {
+                                    // Register the re-export
+                                    let reexport_id =
+                                        ClassId::new(module_path.clone(), exported_name.clone());
                                     reexports_to_add.push((reexport_id, original_id));
                                 }
                             }
                         }
-                    }
-                    Import::Module { .. } => {
-                        // Module imports don't re-export classes
+                        Import::RelativeFrom {
+                            level,
+                            module: rel_module,
+                            names,
+                        } => {
+                            // Resolve the relative import
+                            let is_package = self.packages.contains(module_path);
+                            if let Some(base) = crate::parser::resolve_relative_import_with_context(
+                                module_path,
+                                *level,
+                                is_package,
+                            ) {
+                                for (name, alias) in names {
+                                    let exported_name = alias.as_ref().unwrap_or(name);
+
+                                    // Build the full module path
+                                    let original_module = if let Some(m) = rel_module {
+                                        if base.is_empty() {
+                                            m.clone()
+                                        } else {
+                                            format!("{base}.{m}")
+                                        }
+                                    } else {
+                                        base.clone()
+                                    };
+
+                                    let original_id = ClassId::new(original_module, name.clone());
+
+                                    // Check if the class exists directly or as a re-export
+                                    // (we'll resolve the chain later)
+                                    if self.classes.contains_key(&original_id)
+                                        || self.re_exports.contains_key(&original_id)
+                                    {
+                                        let reexport_id = ClassId::new(
+                                            module_path.clone(),
+                                            exported_name.clone(),
+                                        );
+                                        reexports_to_add.push((reexport_id, original_id));
+                                    }
+                                }
+                            }
+                        }
+                        Import::Module { .. } => {
+                            // Module imports don't re-export classes
+                        }
                     }
                 }
             }
-        }
 
             // Add all the re-exports
             for (reexport_id, original_id) in reexports_to_add {
                 // Only add if it's new
-                if !self.re_exports.contains_key(&reexport_id) {
-                    self.re_exports.insert(reexport_id, original_id);
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    self.re_exports.entry(reexport_id)
+                {
+                    e.insert(original_id);
                     changed = true;
                 }
             }
@@ -178,10 +197,7 @@ impl ClassRegistry {
         self.classes.insert(id.clone(), info);
 
         // Add to name index
-        self.name_index
-            .entry(class.name)
-            .or_default()
-            .push(id);
+        self.name_index.entry(class.name).or_default().push(id);
     }
 
     /// Finds all classes with a given name.
@@ -299,9 +315,12 @@ impl ClassRegistry {
                     // Check if this module path matches an import
                     if let Some(imports) = self.imports.get(context_module) {
                         let is_package = self.packages.contains(context_module);
-                        if let Some(resolved) =
-                            crate::parser::resolve_import(&parts[0], imports, context_module, is_package)
-                        {
+                        if let Some(resolved) = crate::parser::resolve_import(
+                            &parts[0],
+                            imports,
+                            context_module,
+                            is_package,
+                        ) {
                             // Build the full path
                             let full_module = if parts.len() > 2 {
                                 format!("{}.{}", resolved, parts[1..parts.len() - 1].join("."))
@@ -581,7 +600,9 @@ mod tests {
         registry.build_reexports();
 
         // Resolve Dog's base class
-        let dog_info = registry.get(&ClassId::new("pets".to_string(), "Dog".to_string())).unwrap();
+        let dog_info = registry
+            .get(&ClassId::new("pets".to_string(), "Dog".to_string()))
+            .unwrap();
         let base = &dog_info.bases[0];
         let resolved_base = registry.resolve_base(base, "pets");
 
