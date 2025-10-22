@@ -191,17 +191,24 @@ impl SubclassFinder {
 
     /// Finds the ClassId for the target class.
     fn find_target_class(&self, class_name: &str, module_path: Option<&str>) -> Result<ClassId> {
-        // If module path provided, look for exact match
+        // If module path provided, look for exact match or re-export
         if let Some(module) = module_path {
             let id = ClassId::new(module.to_string(), class_name.to_string());
-            return self
-                .registry
-                .get(&id)
-                .map(|_| id)
-                .ok_or_else(|| Error::ClassNotFound {
-                    name: class_name.to_string(),
-                    module_path: Some(module.to_string()),
-                });
+
+            // Try direct lookup first
+            if self.registry.get(&id).is_some() {
+                return Ok(id);
+            }
+
+            // Try resolving through re-exports
+            if let Some(resolved) = self.registry.resolve_class_through_reexports(&id) {
+                return Ok(resolved);
+            }
+
+            return Err(Error::ClassNotFound {
+                name: class_name.to_string(),
+                module_path: Some(module.to_string()),
+            });
         }
 
         // Otherwise find by name

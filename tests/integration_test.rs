@@ -385,3 +385,54 @@ fn test_complex_relative_imports() {
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_reexport_module_path() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Base class in internal module
+    temp.child("pkg/_internal/base.py")
+        .write_str("class Node:
+    pass
+")
+        .unwrap();
+
+    // Re-export at package level
+    temp.child("pkg/__init__.py")
+        .write_str("from ._internal.base import Node
+")
+        .unwrap();
+
+    // Subclass using the re-exported name
+    temp.child("pkg/custom.py")
+        .write_str("from . import Node
+
+class CustomNode(Node):
+    pass
+")
+        .unwrap();
+
+    // Should work with the actual module path
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Node")
+        .arg("--module")
+        .arg("pkg._internal.base")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CustomNode"));
+
+    // Should also work with the re-exporting module path
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Node")
+        .arg("--module")
+        .arg("pkg")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CustomNode"));
+
+    temp.close().unwrap();
+}

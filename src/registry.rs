@@ -224,6 +224,13 @@ impl ClassRegistry {
     /// Resolves a ClassId through re-exports to find the canonical ClassId.
     /// If the given ClassId is a re-export, follows the chain to find the original.
     /// Otherwise returns the input ClassId if it exists in the registry.
+    ///
+    /// This is the public API for resolving re-exports.
+    pub fn resolve_class_through_reexports(&self, id: &ClassId) -> Option<ClassId> {
+        self.resolve_through_reexports(id)
+    }
+
+    /// Internal method to resolve through re-exports.
     fn resolve_through_reexports(&self, id: &ClassId) -> Option<ClassId> {
         let mut current = id.clone();
         let mut visited = std::collections::HashSet::new();

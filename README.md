@@ -50,6 +50,13 @@ When the same class name appears in multiple modules, specify the module path:
 pysubclasses Animal --module zoo.animals
 ```
 
+The `--module` flag also works with re-exporting modules. For example, if `Node` is defined in `pkg._internal` but re-exported through `pkg/__init__.py`, both of these will work:
+
+```bash
+pysubclasses Node --module pkg._internal
+pysubclasses Node --module pkg  # Shorter, using the re-export
+```
+
 ### Search in Specific Directory
 
 Search in a different directory than the current one:
