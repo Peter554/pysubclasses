@@ -94,6 +94,19 @@ fn main() -> Result<()> {
     // Find subclasses
     let subclasses = finder
         .find_subclasses(&args.class_name, args.module.as_deref())
+        .map_err(|e| match &e {
+            pysubclasses::Error::AmbiguousClassName { name, candidates } => {
+                let formatted_candidates = candidates
+                    .iter()
+                    .map(|c| format!("  - {c}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                anyhow::anyhow!(
+                    "Class '{name}' found in multiple modules:\n{formatted_candidates}\n\nPlease specify --module to disambiguate."
+                )
+            }
+            _ => anyhow::Error::from(e),
+        })
         .context("Failed to find subclasses")?;
 
     // Output results

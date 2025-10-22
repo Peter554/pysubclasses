@@ -224,10 +224,7 @@ impl SubclassFinder {
         match matches.len() {
             1 => Ok(matches[0].clone()),
             _ => {
-                let candidates = matches
-                    .iter()
-                    .map(|id| format!("  - {}", id.module_path))
-                    .collect();
+                let candidates = matches.iter().map(|id| id.module_path.clone()).collect();
                 Err(Error::AmbiguousClassName {
                     name: class_name.to_string(),
                     candidates,

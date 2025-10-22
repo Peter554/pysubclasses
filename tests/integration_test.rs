@@ -119,7 +119,10 @@ fn test_ambiguous_class_name() {
         .arg(temp.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("multiple modules"));
+        .stderr(predicate::str::contains("multiple modules"))
+        .stderr(predicate::str::contains(
+            "Please specify --module to disambiguate",
+        ));
 
     // With module path, should succeed
     let mut cmd = Command::cargo_bin("pysubclasses").unwrap();

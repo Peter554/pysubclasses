@@ -10,7 +10,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     /// The specified class name appears in multiple modules.
-    #[error("Class '{name}' found in multiple modules. Please specify --module to disambiguate:\n{}", .candidates.join("\n"))]
+    #[error("Class '{name}' found in multiple modules: {}", .candidates.join(", "))]
     AmbiguousClassName {
         name: String,
         candidates: Vec<String>,
