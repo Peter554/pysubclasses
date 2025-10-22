@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml/badge.svg)](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml)
 
+> [!WARNING]
+> This code was AI generated (Claude Code), and has not yet been thoroughly reviewed.
+
 A Rust CLI tool and library for finding all subclasses (direct and transitive) of a Python class within a codebase.
 
 ## Features
