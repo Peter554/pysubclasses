@@ -17,19 +17,19 @@ use std::path::PathBuf;
 )]
 struct Args {
     /// Name of the class to find subclasses for
-    #[arg(value_name = "CLASS_NAME")]
+    #[arg()]
     class_name: String,
 
     /// Dotted module path where the class is defined (e.g., 'foo.bar')
     ///
     /// Use this to disambiguate when the same class name appears in multiple modules.
-    #[arg(short, long, value_name = "MODULE")]
+    #[arg(short, long)]
     module: Option<String>,
 
     /// Root directory to search for Python files
     ///
     /// If not specified, uses the current directory.
-    #[arg(short = 'd', long, value_name = "DIR", default_value = ".")]
+    #[arg(short, long, default_value = ".")]
     directory: PathBuf,
 
     /// Output format
