@@ -292,3 +292,96 @@ fn test_help_message() {
         .stdout(predicate::str::contains("--module"))
         .stdout(predicate::str::contains("--directory"));
 }
+
+#[test]
+fn test_reexport_single_level() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create package structure with re-export
+    temp.child("mypackage/base.py")
+        .write_str("class Animal:\n    pass\n")
+        .unwrap();
+
+    temp.child("mypackage/__init__.py")
+        .write_str("from .base import Animal\n")
+        .unwrap();
+
+    temp.child("mypackage/dog.py")
+        .write_str("from . import Animal\n\nclass Dog(Animal):\n    pass\n")
+        .unwrap();
+
+    // Should find Dog as subclass of Animal
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Animal")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dog"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_reexport_multi_level() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create nested package structure with transitive re-exports
+    temp.child("pkg/_nodes/_base.py")
+        .write_str("class Node:\n    pass\n")
+        .unwrap();
+
+    temp.child("pkg/_nodes/__init__.py")
+        .write_str("from ._base import Node\n")
+        .unwrap();
+
+    temp.child("pkg/__init__.py")
+        .write_str("from ._nodes import Node\n")
+        .unwrap();
+
+    temp.child("pkg/custom.py")
+        .write_str("from . import Node\n\nclass CustomNode(Node):\n    pass\n")
+        .unwrap();
+
+    // Should find CustomNode as subclass of Node through multi-level re-exports
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Node")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CustomNode"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_complex_relative_imports() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Base class deep in package
+    temp.child("company/domain/core/base.py")
+        .write_str("class Entity:\n    pass\n")
+        .unwrap();
+
+    // Re-export at core level
+    temp.child("company/domain/core/__init__.py")
+        .write_str("from .base import Entity\n")
+        .unwrap();
+
+    // Subclass using ../../ relative import
+    temp.child("company/app/models/user.py")
+        .write_str("from ...domain.core import Entity\n\nclass User(Entity):\n    pass\n")
+        .unwrap();
+
+    // Should find User as subclass of Entity
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Entity")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("User"));
+
+    temp.close().unwrap();
+}

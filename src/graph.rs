@@ -125,6 +125,7 @@ mod tests {
                 bases: vec![],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         // Dog(Animal)
@@ -137,6 +138,7 @@ mod tests {
                 bases: vec![BaseClass::Simple("Animal".to_string())],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         let graph = InheritanceGraph::build(&registry);
@@ -162,6 +164,7 @@ mod tests {
                 bases: vec![],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         // Mammal(Animal)
@@ -174,6 +177,7 @@ mod tests {
                 bases: vec![BaseClass::Simple("Animal".to_string())],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         // Dog(Mammal)
@@ -186,6 +190,7 @@ mod tests {
                 bases: vec![BaseClass::Simple("Mammal".to_string())],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         let graph = InheritanceGraph::build(&registry);
@@ -215,6 +220,7 @@ mod tests {
                 bases: vec![],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         // Pet
@@ -227,6 +233,7 @@ mod tests {
                 bases: vec![],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         // Dog(Animal, Pet)
@@ -242,6 +249,7 @@ mod tests {
                 ],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         let graph = InheritanceGraph::build(&registry);
@@ -271,6 +279,7 @@ mod tests {
                 bases: vec![],
             }],
             imports: vec![],
+            is_package: false,
         });
 
         let graph = InheritanceGraph::build(&registry);
