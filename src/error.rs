@@ -30,12 +30,4 @@ pub enum Error {
     /// Failed to parse a Python file.
     #[error("Failed to parse {}: {error}", .file.display())]
     ParseError { file: PathBuf, error: String },
-
-    /// Invalid module path format.
-    #[error("Invalid module path: {0}")]
-    InvalidModulePath(String),
-
-    /// Circular inheritance detected.
-    #[error("Circular inheritance detected involving class '{0}'")]
-    CircularInheritance(String),
 }

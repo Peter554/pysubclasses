@@ -68,11 +68,10 @@ impl InheritanceGraph {
         // BFS traversal
         while let Some(class_id) = queue.pop_front() {
             // Skip if already visited (handles potential cycles)
-            if visited.contains(&class_id) {
+            if !visited.insert(class_id.clone()) {
                 continue;
             }
 
-            visited.insert(class_id.clone());
             result.push(class_id.clone());
 
             // Add this class's children to the queue

@@ -191,42 +191,40 @@ impl SubclassFinder {
 
     /// Finds the ClassId for the target class.
     fn find_target_class(&self, class_name: &str, module_path: Option<&str>) -> Result<ClassId> {
+        // If module path provided, look for exact match
         if let Some(module) = module_path {
-            // Module path provided - look for exact match
             let id = ClassId::new(module.to_string(), class_name.to_string());
-            if self.registry.get(&id).is_some() {
-                Ok(id)
-            } else {
-                Err(Error::ClassNotFound {
+            return self
+                .registry
+                .get(&id)
+                .map(|_| id)
+                .ok_or_else(|| Error::ClassNotFound {
                     name: class_name.to_string(),
                     module_path: Some(module.to_string()),
-                })
-            }
-        } else {
-            // No module path - find by name
-            let matches = self.registry.find_by_name(class_name);
+                });
+        }
 
-            match matches {
-                None => Err(Error::ClassNotFound {
+        // Otherwise find by name
+        let matches = self
+            .registry
+            .find_by_name(class_name)
+            .filter(|ids| !ids.is_empty())
+            .ok_or_else(|| Error::ClassNotFound {
+                name: class_name.to_string(),
+                module_path: None,
+            })?;
+
+        match matches.len() {
+            1 => Ok(matches[0].clone()),
+            _ => {
+                let candidates = matches
+                    .iter()
+                    .map(|id| format!("  - {}", id.module_path))
+                    .collect();
+                Err(Error::AmbiguousClassName {
                     name: class_name.to_string(),
-                    module_path: None,
-                }),
-                Some(ids) if ids.is_empty() => Err(Error::ClassNotFound {
-                    name: class_name.to_string(),
-                    module_path: None,
-                }),
-                Some(ids) if ids.len() == 1 => Ok(ids[0].clone()),
-                Some(ids) => {
-                    // Ambiguous
-                    let candidates: Vec<String> = ids
-                        .iter()
-                        .map(|id| format!("  - {}", id.module_path))
-                        .collect();
-                    Err(Error::AmbiguousClassName {
-                        name: class_name.to_string(),
-                        candidates,
-                    })
-                }
+                    candidates,
+                })
             }
         }
     }

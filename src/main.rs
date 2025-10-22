@@ -77,7 +77,7 @@ fn main() -> Result<()> {
     }
 
     // Create the finder (this parses all Python files)
-    let finder = SubclassFinder::new(root_dir.clone()).context("Failed to analyze codebase")?;
+    let finder = SubclassFinder::new(root_dir).context("Failed to analyze codebase")?;
 
     if args.verbose {
         eprintln!("Found {} classes in codebase", finder.class_count());
@@ -98,14 +98,14 @@ fn main() -> Result<()> {
 
     // Output results
     match args.format {
-        OutputFormat::Text => output_text(&args.class_name, &subclasses, args.verbose, &root_dir),
+        OutputFormat::Text => output_text(&args.class_name, &subclasses, args.verbose),
         OutputFormat::Json => output_json(&args.class_name, &args.module, &subclasses)?,
     }
 
     Ok(())
 }
 
-fn output_text(class_name: &str, subclasses: &[ClassReference], verbose: bool, root_dir: &PathBuf) {
+fn output_text(class_name: &str, subclasses: &[ClassReference], verbose: bool) {
     if subclasses.is_empty() {
         println!("No subclasses found for '{class_name}'");
         return;
@@ -119,16 +119,11 @@ fn output_text(class_name: &str, subclasses: &[ClassReference], verbose: bool, r
 
     for class_ref in subclasses {
         if verbose {
-            // Show relative path
-            let rel_path = class_ref
-                .file_path
-                .strip_prefix(root_dir)
-                .unwrap_or(&class_ref.file_path);
             println!(
                 "  {} ({})\n    └─ {}",
                 class_ref.class_name,
                 class_ref.module_path,
-                rel_path.display()
+                class_ref.file_path.display()
             );
         } else {
             println!("  {} ({})", class_ref.class_name, class_ref.module_path);

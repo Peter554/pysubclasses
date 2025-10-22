@@ -106,10 +106,10 @@ pub fn file_path_to_module_path(file_path: &Path, root_dir: &Path) -> Option<Str
     }
 
     // Handle __init__.py - it represents the parent package
-    let module_parts: Vec<&str> = if components.last() == Some(&"__init__") {
-        components[..components.len() - 1].to_vec()
+    let module_parts = if components.last() == Some(&"__init__") {
+        &components[..components.len() - 1]
     } else {
-        components
+        &components[..]
     };
 
     if module_parts.is_empty() {

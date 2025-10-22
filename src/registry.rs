@@ -19,10 +19,6 @@ impl ClassId {
             class_name,
         }
     }
-
-    pub fn qualified_name(&self) -> String {
-        format!("{}.{}", self.module_path, self.class_name)
-    }
 }
 
 /// Information about where a class is defined.
@@ -34,6 +30,7 @@ pub struct ClassInfo {
 }
 
 /// A registry of all classes found in a codebase.
+#[derive(Default)]
 pub struct ClassRegistry {
     /// Map from ClassId to ClassInfo
     classes: HashMap<ClassId, ClassInfo>,
@@ -56,13 +53,7 @@ pub struct ClassRegistry {
 impl ClassRegistry {
     /// Creates a new empty class registry.
     pub fn new() -> Self {
-        Self {
-            classes: HashMap::new(),
-            name_index: HashMap::new(),
-            imports: HashMap::new(),
-            re_exports: HashMap::new(),
-            packages: std::collections::HashSet::new(),
-        }
+        Self::default()
     }
 
     /// Adds a parsed file to the registry.
@@ -185,7 +176,7 @@ impl ClassRegistry {
 
     /// Adds a class definition to the registry.
     fn add_class(&mut self, class: ClassDefinition) {
-        let id = ClassId::new(class.module_path.clone(), class.name.clone());
+        let id = ClassId::new(class.module_path, class.name.clone());
 
         let info = ClassInfo {
             id: id.clone(),
@@ -193,11 +184,14 @@ impl ClassRegistry {
             bases: class.bases,
         };
 
-        // Add to main registry
-        self.classes.insert(id.clone(), info);
-
         // Add to name index
-        self.name_index.entry(class.name).or_default().push(id);
+        self.name_index
+            .entry(class.name)
+            .or_default()
+            .push(id.clone());
+
+        // Add to main registry
+        self.classes.insert(id, info);
     }
 
     /// Finds all classes with a given name.
@@ -377,12 +371,6 @@ impl ClassRegistry {
     /// Returns true if the registry is empty.
     pub fn is_empty(&self) -> bool {
         self.classes.is_empty()
-    }
-}
-
-impl Default for ClassRegistry {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

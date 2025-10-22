@@ -226,29 +226,21 @@ pub fn resolve_import(
     current_module: &str,
     is_package: bool,
 ) -> Option<String> {
-    // Check if the name was imported
     for import in imports {
         match import {
             Import::Module { module, alias } => {
-                // import foo.bar as baz
-                if let Some(a) = alias {
-                    if a == name {
-                        return Some(module.clone());
-                    }
-                }
-                // import foo.bar (use as foo.bar.Something)
-                if module == name {
+                // import foo.bar as baz OR import foo.bar
+                if alias.as_ref().unwrap_or(module) == name {
                     return Some(module.clone());
                 }
             }
             Import::From { module, names } => {
-                // from foo import Bar
-                // from foo import Bar as Baz
-                for (n, alias) in names {
-                    let imported_name = alias.as_ref().unwrap_or(n);
-                    if imported_name == name {
-                        return Some(format!("{module}.{n}"));
-                    }
+                // from foo import Bar [as Baz]
+                if let Some((n, _)) = names
+                    .iter()
+                    .find(|(n, alias)| alias.as_ref().unwrap_or(n) == name)
+                {
+                    return Some(format!("{module}.{n}"));
                 }
             }
             Import::RelativeFrom {
@@ -257,34 +249,28 @@ pub fn resolve_import(
                 names,
             } => {
                 // from .relative import Bar
-                // from ..parent import Bar
-                for (n, alias) in names {
-                    let imported_name = alias.as_ref().unwrap_or(n);
-                    if imported_name == name {
-                        // Resolve relative import
-                        let base = resolve_relative_import_with_context(
-                            current_module,
-                            *level,
-                            is_package,
-                        )?;
-                        return Some(if let Some(m) = rel_module {
-                            if base.is_empty() {
-                                format!("{m}.{n}")
-                            } else {
-                                format!("{base}.{m}.{n}")
-                            }
-                        } else if base.is_empty() {
-                            n.clone()
-                        } else {
-                            format!("{base}.{n}")
-                        });
-                    }
+                if let Some((n, _)) = names
+                    .iter()
+                    .find(|(n, alias)| alias.as_ref().unwrap_or(n) == name)
+                {
+                    let base =
+                        resolve_relative_import_with_context(current_module, *level, is_package)?;
+                    return Some(build_qualified_name(&base, rel_module.as_deref(), n));
                 }
             }
         }
     }
-
     None
+}
+
+/// Builds a qualified name from base, optional module, and name components.
+fn build_qualified_name(base: &str, module: Option<&str>, name: &str) -> String {
+    match (base.is_empty(), module) {
+        (true, None) => name.to_string(),
+        (true, Some(m)) => format!("{m}.{name}"),
+        (false, None) => format!("{base}.{name}"),
+        (false, Some(m)) => format!("{base}.{m}.{name}"),
+    }
 }
 
 /// Resolves a relative import to an absolute module path.
