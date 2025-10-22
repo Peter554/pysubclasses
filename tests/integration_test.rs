@@ -392,24 +392,30 @@ fn test_reexport_module_path() {
 
     // Base class in internal module
     temp.child("pkg/_internal/base.py")
-        .write_str("class Node:
+        .write_str(
+            "class Node:
     pass
-")
+",
+        )
         .unwrap();
 
     // Re-export at package level
     temp.child("pkg/__init__.py")
-        .write_str("from ._internal.base import Node
-")
+        .write_str(
+            "from ._internal.base import Node
+",
+        )
         .unwrap();
 
     // Subclass using the re-exported name
     temp.child("pkg/custom.py")
-        .write_str("from . import Node
+        .write_str(
+            "from . import Node
 
 class CustomNode(Node):
     pass
-")
+",
+        )
         .unwrap();
 
     // Should work with the actual module path
