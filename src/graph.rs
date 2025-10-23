@@ -112,33 +112,32 @@ mod tests {
 
     #[test]
     fn test_simple_inheritance() {
-        let mut registry = ClassRegistry::new();
-
-        // Animal (base class)
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "animals".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Animal".to_string(),
+        let registry = ClassRegistry::new(vec![
+            // Animal (base class)
+            crate::parser::ParsedFile {
                 module_path: "animals".to_string(),
-                file_path: PathBuf::from("animals.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Dog(Animal)
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "animals".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Dog".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "animals".to_string(),
+                    file_path: PathBuf::from("animals.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Dog(Animal)
+            crate::parser::ParsedFile {
                 module_path: "animals".to_string(),
-                file_path: PathBuf::from("animals.py"),
-                bases: vec![BaseClass::Simple("Animal".to_string())],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
+                classes: vec![ClassDefinition {
+                    name: "Dog".to_string(),
+                    module_path: "animals".to_string(),
+                    file_path: PathBuf::from("animals.py"),
+                    bases: vec![BaseClass::Simple("Animal".to_string())],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+        ]);
 
         let graph = InheritanceGraph::build(&registry);
 
@@ -151,46 +150,44 @@ mod tests {
 
     #[test]
     fn test_transitive_inheritance() {
-        let mut registry = ClassRegistry::new();
-
-        // Animal
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Animal".to_string(),
+        let registry = ClassRegistry::new(vec![
+            // Animal
+            crate::parser::ParsedFile {
                 module_path: "base".to_string(),
-                file_path: PathBuf::from("base.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Mammal(Animal)
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Mammal".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "base".to_string(),
+                    file_path: PathBuf::from("base.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Mammal(Animal)
+            crate::parser::ParsedFile {
                 module_path: "base".to_string(),
-                file_path: PathBuf::from("base.py"),
-                bases: vec![BaseClass::Simple("Animal".to_string())],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Dog(Mammal)
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Dog".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Mammal".to_string(),
+                    module_path: "base".to_string(),
+                    file_path: PathBuf::from("base.py"),
+                    bases: vec![BaseClass::Simple("Animal".to_string())],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Dog(Mammal)
+            crate::parser::ParsedFile {
                 module_path: "base".to_string(),
-                file_path: PathBuf::from("base.py"),
-                bases: vec![BaseClass::Simple("Mammal".to_string())],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
+                classes: vec![ClassDefinition {
+                    name: "Dog".to_string(),
+                    module_path: "base".to_string(),
+                    file_path: PathBuf::from("base.py"),
+                    bases: vec![BaseClass::Simple("Mammal".to_string())],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+        ]);
 
         let graph = InheritanceGraph::build(&registry);
 
@@ -207,49 +204,47 @@ mod tests {
 
     #[test]
     fn test_multiple_inheritance() {
-        let mut registry = ClassRegistry::new();
-
-        // Animal
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Animal".to_string(),
+        let registry = ClassRegistry::new(vec![
+            // Animal
+            crate::parser::ParsedFile {
                 module_path: "base".to_string(),
-                file_path: PathBuf::from("base.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Pet
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Pet".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "base".to_string(),
+                    file_path: PathBuf::from("base.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Pet
+            crate::parser::ParsedFile {
                 module_path: "base".to_string(),
-                file_path: PathBuf::from("base.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Dog(Animal, Pet)
-        registry.add_file(crate::parser::ParsedFile {
-            module_path: "base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Dog".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Pet".to_string(),
+                    module_path: "base".to_string(),
+                    file_path: PathBuf::from("base.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Dog(Animal, Pet)
+            crate::parser::ParsedFile {
                 module_path: "base".to_string(),
-                file_path: PathBuf::from("base.py"),
-                bases: vec![
-                    BaseClass::Simple("Animal".to_string()),
-                    BaseClass::Simple("Pet".to_string()),
-                ],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
+                classes: vec![ClassDefinition {
+                    name: "Dog".to_string(),
+                    module_path: "base".to_string(),
+                    file_path: PathBuf::from("base.py"),
+                    bases: vec![
+                        BaseClass::Simple("Animal".to_string()),
+                        BaseClass::Simple("Pet".to_string()),
+                    ],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+        ]);
 
         let graph = InheritanceGraph::build(&registry);
 
@@ -267,9 +262,7 @@ mod tests {
 
     #[test]
     fn test_no_subclasses() {
-        let mut registry = ClassRegistry::new();
-
-        registry.add_file(crate::parser::ParsedFile {
+        let registry = ClassRegistry::new(vec![crate::parser::ParsedFile {
             module_path: "base".to_string(),
             classes: vec![ClassDefinition {
                 name: "Animal".to_string(),
@@ -279,7 +272,7 @@ mod tests {
             }],
             imports: vec![],
             is_package: false,
-        });
+        }]);
 
         let graph = InheritanceGraph::build(&registry);
 

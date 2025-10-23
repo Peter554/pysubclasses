@@ -51,13 +51,25 @@ pub struct ClassRegistry {
 }
 
 impl ClassRegistry {
-    /// Creates a new empty class registry.
-    pub fn new() -> Self {
-        Self::default()
+    /// Creates a new class registry from a vector of parsed files.
+    ///
+    /// This will build the registry and resolve all re-exports.
+    pub fn new(parsed_files: Vec<ParsedFile>) -> Self {
+        let mut registry = Self::default();
+
+        // Add all files to the registry
+        for parsed in parsed_files {
+            registry.add_file(parsed);
+        }
+
+        // Build re-export mappings now that all classes are registered
+        registry.build_reexports();
+
+        registry
     }
 
     /// Adds a parsed file to the registry.
-    pub fn add_file(&mut self, parsed: ParsedFile) {
+    fn add_file(&mut self, parsed: ParsedFile) {
         // Store imports for this module
         self.imports
             .insert(parsed.module_path.clone(), parsed.imports.clone());
@@ -81,7 +93,7 @@ impl ClassRegistry {
     ///
     /// This may need multiple iterations to resolve transitive re-exports
     /// (e.g., A re-exports from B, B re-exports from C).
-    pub fn build_reexports(&mut self) {
+    fn build_reexports(&mut self) {
         // Iterate until no new re-exports are added (fixed-point iteration)
         let mut changed = true;
         while changed {
@@ -388,16 +400,17 @@ mod tests {
 
     #[test]
     fn test_add_and_find_class() {
-        let mut registry = ClassRegistry::new();
-
-        let class = ClassDefinition {
-            name: "Dog".to_string(),
+        let registry = ClassRegistry::new(vec![ParsedFile {
             module_path: "animals".to_string(),
-            file_path: PathBuf::from("animals.py"),
-            bases: vec![],
-        };
-
-        registry.add_class(class);
+            classes: vec![ClassDefinition {
+                name: "Dog".to_string(),
+                module_path: "animals".to_string(),
+                file_path: PathBuf::from("animals.py"),
+                bases: vec![],
+            }],
+            imports: vec![],
+            is_package: false,
+        }]);
 
         // Find by name only
         let matches = registry.find_by_name("Dog").unwrap();
@@ -411,21 +424,30 @@ mod tests {
 
     #[test]
     fn test_ambiguous_class_name() {
-        let mut registry = ClassRegistry::new();
-
-        registry.add_class(ClassDefinition {
-            name: "Animal".to_string(),
-            module_path: "zoo".to_string(),
-            file_path: PathBuf::from("zoo.py"),
-            bases: vec![],
-        });
-
-        registry.add_class(ClassDefinition {
-            name: "Animal".to_string(),
-            module_path: "farm".to_string(),
-            file_path: PathBuf::from("farm.py"),
-            bases: vec![],
-        });
+        let registry = ClassRegistry::new(vec![
+            ParsedFile {
+                module_path: "zoo".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "zoo".to_string(),
+                    file_path: PathBuf::from("zoo.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            ParsedFile {
+                module_path: "farm".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "farm".to_string(),
+                    file_path: PathBuf::from("farm.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+        ]);
 
         // Should find both
         let matches = registry.find_by_name("Animal").unwrap();
@@ -443,35 +465,31 @@ mod tests {
     fn test_simple_reexport() {
         use crate::parser::{Import, ParsedFile};
 
-        let mut registry = ClassRegistry::new();
-
-        // Define a class in base module
-        registry.add_file(ParsedFile {
-            module_path: "mypackage.base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Animal".to_string(),
+        let registry = ClassRegistry::new(vec![
+            // Define a class in base module
+            ParsedFile {
                 module_path: "mypackage.base".to_string(),
-                file_path: PathBuf::from("mypackage/base.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Re-export it from __init__.py
-        registry.add_file(ParsedFile {
-            module_path: "mypackage".to_string(),
-            classes: vec![],
-            imports: vec![Import::RelativeFrom {
-                level: 1,
-                module: Some("base".to_string()),
-                names: vec![("Animal".to_string(), None)],
-            }],
-            is_package: true,
-        });
-
-        // Build re-exports
-        registry.build_reexports();
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "mypackage.base".to_string(),
+                    file_path: PathBuf::from("mypackage/base.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Re-export it from __init__.py
+            ParsedFile {
+                module_path: "mypackage".to_string(),
+                classes: vec![],
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: Some("base".to_string()),
+                    names: vec![("Animal".to_string(), None)],
+                }],
+                is_package: true,
+            },
+        ]);
 
         // Should be able to find it via the re-exported path
         let id = ClassId::new("mypackage".to_string(), "Animal".to_string());
@@ -486,47 +504,42 @@ mod tests {
     fn test_transitive_reexport() {
         use crate::parser::{Import, ParsedFile};
 
-        let mut registry = ClassRegistry::new();
-
-        // Define a class in _base module
-        registry.add_file(ParsedFile {
-            module_path: "pkg._nodes._base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Node".to_string(),
+        let registry = ClassRegistry::new(vec![
+            // Define a class in _base module
+            ParsedFile {
                 module_path: "pkg._nodes._base".to_string(),
-                file_path: PathBuf::from("pkg/_nodes/_base.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Re-export from _nodes/__init__.py
-        registry.add_file(ParsedFile {
-            module_path: "pkg._nodes".to_string(),
-            classes: vec![],
-            imports: vec![Import::RelativeFrom {
-                level: 1,
-                module: Some("_base".to_string()),
-                names: vec![("Node".to_string(), None)],
-            }],
-            is_package: true,
-        });
-
-        // Re-export from pkg/__init__.py
-        registry.add_file(ParsedFile {
-            module_path: "pkg".to_string(),
-            classes: vec![],
-            imports: vec![Import::RelativeFrom {
-                level: 1,
-                module: Some("_nodes".to_string()),
-                names: vec![("Node".to_string(), None)],
-            }],
-            is_package: true,
-        });
-
-        // Build re-exports
-        registry.build_reexports();
+                classes: vec![ClassDefinition {
+                    name: "Node".to_string(),
+                    module_path: "pkg._nodes._base".to_string(),
+                    file_path: PathBuf::from("pkg/_nodes/_base.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Re-export from _nodes/__init__.py
+            ParsedFile {
+                module_path: "pkg._nodes".to_string(),
+                classes: vec![],
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: Some("_base".to_string()),
+                    names: vec![("Node".to_string(), None)],
+                }],
+                is_package: true,
+            },
+            // Re-export from pkg/__init__.py
+            ParsedFile {
+                module_path: "pkg".to_string(),
+                classes: vec![],
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: Some("_nodes".to_string()),
+                    names: vec![("Node".to_string(), None)],
+                }],
+                is_package: true,
+            },
+        ]);
 
         // Should be able to find it via the top-level re-exported path
         let id = ClassId::new("pkg".to_string(), "Node".to_string());
@@ -548,51 +561,46 @@ mod tests {
     fn test_reexport_with_inheritance() {
         use crate::parser::{BaseClass, Import, ParsedFile};
 
-        let mut registry = ClassRegistry::new();
-
-        // Define Animal in base module
-        registry.add_file(ParsedFile {
-            module_path: "animals.base".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Animal".to_string(),
+        let registry = ClassRegistry::new(vec![
+            // Define Animal in base module
+            ParsedFile {
                 module_path: "animals.base".to_string(),
-                file_path: PathBuf::from("animals/base.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        });
-
-        // Re-export Animal from animals/__init__.py
-        registry.add_file(ParsedFile {
-            module_path: "animals".to_string(),
-            classes: vec![],
-            imports: vec![Import::RelativeFrom {
-                level: 1,
-                module: Some("base".to_string()),
-                names: vec![("Animal".to_string(), None)],
-            }],
-            is_package: true,
-        });
-
-        // Define Dog that inherits from re-exported Animal
-        registry.add_file(ParsedFile {
-            module_path: "pets".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Dog".to_string(),
+                classes: vec![ClassDefinition {
+                    name: "Animal".to_string(),
+                    module_path: "animals.base".to_string(),
+                    file_path: PathBuf::from("animals/base.py"),
+                    bases: vec![],
+                }],
+                imports: vec![],
+                is_package: false,
+            },
+            // Re-export Animal from animals/__init__.py
+            ParsedFile {
+                module_path: "animals".to_string(),
+                classes: vec![],
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: Some("base".to_string()),
+                    names: vec![("Animal".to_string(), None)],
+                }],
+                is_package: true,
+            },
+            // Define Dog that inherits from re-exported Animal
+            ParsedFile {
                 module_path: "pets".to_string(),
-                file_path: PathBuf::from("pets.py"),
-                bases: vec![BaseClass::Simple("Animal".to_string())],
-            }],
-            imports: vec![Import::From {
-                module: "animals".to_string(),
-                names: vec![("Animal".to_string(), None)],
-            }],
-            is_package: false,
-        });
-
-        // Build re-exports
-        registry.build_reexports();
+                classes: vec![ClassDefinition {
+                    name: "Dog".to_string(),
+                    module_path: "pets".to_string(),
+                    file_path: PathBuf::from("pets.py"),
+                    bases: vec![BaseClass::Simple("Animal".to_string())],
+                }],
+                imports: vec![Import::From {
+                    module: "animals".to_string(),
+                    names: vec![("Animal".to_string(), None)],
+                }],
+                is_package: false,
+            },
+        ]);
 
         // Resolve Dog's base class
         let dog_info = registry

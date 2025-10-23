@@ -29,6 +29,8 @@ pub mod registry;
 
 use std::path::PathBuf;
 
+use rayon::prelude::*;
+
 pub use error::{Error, Result};
 use registry::{ClassId, ClassRegistry};
 
@@ -90,29 +92,28 @@ impl SubclassFinder {
     /// - The directory cannot be read
     /// - Any Python files cannot be parsed
     pub fn new(root_dir: PathBuf) -> Result<Self> {
-        let mut registry = ClassRegistry::new();
-
         // Discover all Python files
         let python_files = discovery::discover_python_files(&root_dir)?;
 
-        // Parse each file and add to registry
-        for file_path in python_files {
-            // Convert file path to module path
-            if let Some(module_path) = discovery::file_path_to_module_path(&file_path, &root_dir) {
-                match parser::parse_file(&file_path, &module_path) {
-                    Ok(parsed) => {
-                        registry.add_file(parsed);
-                    }
+        // Parse files in parallel and collect results
+        let parsed_files: Vec<_> = python_files
+            .par_iter()
+            .filter_map(|file_path| {
+                // Convert file path to module path
+                let module_path = discovery::file_path_to_module_path(file_path, &root_dir)?;
+                match parser::parse_file(file_path, &module_path) {
+                    Ok(parsed) => Some(parsed),
                     Err(e) => {
                         // Log parse errors but continue
                         eprintln!("Warning: {e}");
+                        None
                     }
                 }
-            }
-        }
+            })
+            .collect();
 
-        // Build re-export mappings now that all classes are registered
-        registry.build_reexports();
+        // Build registry from parsed files
+        let registry = ClassRegistry::new(parsed_files);
 
         Ok(Self { root_dir, registry })
     }
