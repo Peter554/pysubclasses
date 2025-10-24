@@ -445,3 +445,93 @@ class CustomNode(Node):
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_generic_classes() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create base class that uses Generic
+    temp.child("base.py")
+        .write_str(
+            r#"
+from typing import Generic, TypeVar
+
+T = TypeVar('T')
+
+class Container(Generic[T]):
+    pass
+"#,
+        )
+        .unwrap();
+
+    // Create derived class that inherits from Generic base
+    temp.child("derived.py")
+        .write_str(
+            r#"
+from base import Container
+
+class StringContainer(Container[str]):
+    pass
+
+class IntContainer(Container[int]):
+    pass
+"#,
+        )
+        .unwrap();
+
+    // Should find both StringContainer and IntContainer as subclasses of Container
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Container")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("StringContainer"))
+        .stdout(predicate::str::contains("IntContainer"))
+        .stdout(predicate::str::contains("derived"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_generic_classes_python312_syntax() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create base class using Python 3.12+ generic syntax
+    temp.child("base.py")
+        .write_str(
+            r#"
+class Container[T]:
+    pass
+"#,
+        )
+        .unwrap();
+
+    // Create derived classes that inherit from the generic base
+    temp.child("derived.py")
+        .write_str(
+            r#"
+from base import Container
+
+class StringContainer(Container[str]):
+    pass
+
+class IntContainer(Container[int]):
+    pass
+"#,
+        )
+        .unwrap();
+
+    // Should find both StringContainer and IntContainer as subclasses of Container
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Container")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("StringContainer"))
+        .stdout(predicate::str::contains("IntContainer"))
+        .stdout(predicate::str::contains("derived"));
+
+    temp.close().unwrap();
+}
