@@ -360,121 +360,152 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_resolve_name() {
-        let imports = vec![
-            Import::From {
-                module: "animals".to_string(),
-                names: vec![("Dog".to_string(), None)],
-            },
-            Import::From {
-                module: "pets".to_string(),
-                names: vec![("Cat".to_string(), Some("Kitty".to_string()))],
-            },
-            Import::Module {
-                module: "zoo".to_string(),
-                alias: None,
-            },
-        ];
-
-        assert_eq!(
-            resolve_name("Dog", &imports, "test.module", false),
-            Some("animals.Dog".to_string())
-        );
-        assert_eq!(
-            resolve_name("Kitty", &imports, "test.module", false),
-            Some("pets.Cat".to_string())
-        );
-        assert_eq!(resolve_name("Cat", &imports, "test.module", false), None);
-        assert_eq!(
-            resolve_name("zoo", &imports, "test.module", false),
-            Some("zoo".to_string())
-        );
-
-        // Test relative imports
-        let rel_imports = vec![
-            Import::RelativeFrom {
-                level: 1,
-                module: Some("base".to_string()),
-                names: vec![("Animal".to_string(), None)],
-            },
-            Import::RelativeFrom {
-                level: 1,
-                module: None,
-                names: vec![("Cat".to_string(), None)],
-            },
-        ];
-
-        // from .base import Animal (in mypackage.dog - module, not package)
-        assert_eq!(
-            resolve_name("Animal", &rel_imports, "mypackage.dog", false),
-            Some("mypackage.base.Animal".to_string())
-        );
-
-        // from . import Cat (in mypackage.dog - imports from parent package)
-        assert_eq!(
-            resolve_name("Cat", &rel_imports, "mypackage.dog", false),
-            Some("mypackage.Cat".to_string())
-        );
+    /// Test case for resolve_name function
+    struct Case {
+        name: &'static str,
+        imports: Vec<Import>,
+        current_module: &'static str,
+        is_package: bool,
+        expected: Option<&'static str>,
     }
 
-    #[test]
-    fn test_resolve_name_relative_import_multiple_levels() {
-        let imports = vec![
-            Import::RelativeFrom {
-                level: 2,
-                module: Some("utils".to_string()),
-                names: vec![("Helper".to_string(), None)],
-            },
-            Import::RelativeFrom {
-                level: 3,
-                module: None,
-                names: vec![("Config".to_string(), None)],
-            },
-        ];
-
-        // from ..utils import Helper (in pkg.sub.module - goes up 2, into utils)
+    #[yare::parameterized(
+        from_import_direct = {
+            Case {
+                name: "Dog",
+                imports: vec![Import::From {
+                    module: "animals".to_string(),
+                    names: vec![("Dog".to_string(), None)],
+                }],
+                current_module: "test.module",
+                is_package: false,
+                expected: Some("animals.Dog"),
+            }
+        },
+        from_import_with_alias = {
+            Case {
+                name: "Kitty",
+                imports: vec![Import::From {
+                    module: "pets".to_string(),
+                    names: vec![("Cat".to_string(), Some("Kitty".to_string()))],
+                }],
+                current_module: "test.module",
+                is_package: false,
+                expected: Some("pets.Cat"),
+            }
+        },
+        from_import_alias_no_match = {
+            Case {
+                name: "Cat",
+                imports: vec![Import::From {
+                    module: "pets".to_string(),
+                    names: vec![("Cat".to_string(), Some("Kitty".to_string()))],
+                }],
+                current_module: "test.module",
+                is_package: false,
+                expected: None,
+            }
+        },
+        module_import = {
+            Case {
+                name: "zoo",
+                imports: vec![Import::Module {
+                    module: "zoo".to_string(),
+                    alias: None,
+                }],
+                current_module: "test.module",
+                is_package: false,
+                expected: Some("zoo"),
+            }
+        },
+        relative_from_module_import = {
+            Case {
+                name: "Animal",
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: Some("base".to_string()),
+                    names: vec![("Animal".to_string(), None)],
+                }],
+                current_module: "mypackage.dog",
+                is_package: false,
+                expected: Some("mypackage.base.Animal"),
+            }
+        },
+        relative_from_current_package = {
+            Case {
+                name: "Cat",
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: None,
+                    names: vec![("Cat".to_string(), None)],
+                }],
+                current_module: "mypackage.dog",
+                is_package: false,
+                expected: Some("mypackage.Cat"),
+            }
+        },
+        relative_two_levels_up = {
+            Case {
+                name: "Helper",
+                imports: vec![Import::RelativeFrom {
+                    level: 2,
+                    module: Some("utils".to_string()),
+                    names: vec![("Helper".to_string(), None)],
+                }],
+                current_module: "pkg.sub.module",
+                is_package: false,
+                expected: Some("pkg.utils.Helper"),
+            }
+        },
+        relative_three_levels_up = {
+            Case {
+                name: "Config",
+                imports: vec![Import::RelativeFrom {
+                    level: 3,
+                    module: None,
+                    names: vec![("Config".to_string(), None)],
+                }],
+                current_module: "pkg.sub.module",
+                is_package: false,
+                expected: Some("Config"),
+            }
+        },
+        relative_from_init = {
+            Case {
+                name: "Node",
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: Some("_core".to_string()),
+                    names: vec![("Node".to_string(), None)],
+                }],
+                current_module: "mypackage",
+                is_package: true,
+                expected: Some("mypackage._core.Node"),
+            }
+        },
+        relative_from_toplevel = {
+            Case {
+                name: "Foo",
+                imports: vec![Import::RelativeFrom {
+                    level: 1,
+                    module: None,
+                    names: vec![("Foo".to_string(), None)],
+                }],
+                current_module: "toplevel",
+                is_package: false,
+                expected: Some("Foo"),
+            }
+        },
+    )]
+    fn test_resolve_name(case: Case) {
         assert_eq!(
-            resolve_name("Helper", &imports, "pkg.sub.module", false),
-            Some("pkg.utils.Helper".to_string())
-        );
-
-        // from ... import Config (in pkg.sub.module - goes up 3 to top level)
-        assert_eq!(
-            resolve_name("Config", &imports, "pkg.sub.module", false),
-            Some("Config".to_string())
-        );
-    }
-
-    #[test]
-    fn test_resolve_name_relative_import_from_init() {
-        // Test imports when current module is a package __init__
-        let imports = vec![Import::RelativeFrom {
-            level: 1,
-            module: Some("_core".to_string()),
-            names: vec![("Node".to_string(), None)],
-        }];
-
-        // from ._core import Node (in mypackage.__init__)
-        assert_eq!(
-            resolve_name("Node", &imports, "mypackage", true),
-            Some("mypackage._core.Node".to_string())
-        );
-    }
-
-    #[test]
-    fn test_resolve_name_relative_import_edge_cases() {
-        // Test edge case: module with single component
-        let imports = vec![Import::RelativeFrom {
-            level: 1,
-            module: None,
-            names: vec![("Foo".to_string(), None)],
-        }];
-
-        // from . import Foo (in top-level module - should go to empty string)
-        assert_eq!(
-            resolve_name("Foo", &imports, "toplevel", false),
-            Some("Foo".to_string())
+            resolve_name(
+                case.name,
+                &case.imports,
+                case.current_module,
+                case.is_package
+            ),
+            case.expected.map(|s| s.to_string())
         );
     }
 }
