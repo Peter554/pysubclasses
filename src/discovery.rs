@@ -1,6 +1,6 @@
 //! File discovery module for finding Python files in a directory tree.
 
-use ignore::WalkBuilder;
+use ignore::Walk;
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
@@ -33,22 +33,15 @@ use crate::error::Result;
 pub fn discover_python_files(root_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut python_files = Vec::new();
 
-    let walker = WalkBuilder::new(root_dir)
-        .hidden(false) // Include hidden files (some projects have .hidden dirs)
-        .git_ignore(true) // Respect .gitignore
-        .git_global(true) // Respect global gitignore
-        .git_exclude(true) // Respect .git/info/exclude
-        .ignore(true) // Respect .ignore files
-        .follow_links(false) // Don't follow symlinks to avoid infinite loops
-        .build();
-
-    for entry in walker {
+    for entry in Walk::new(root_dir) {
         let entry = entry.map_err(std::io::Error::other)?;
         let path = entry.path();
 
         // Only include files (not directories) with .py extension
         if entry.file_type().is_some_and(|ft| ft.is_file())
-            && path.extension().and_then(|s| s.to_str()) == Some("py")
+            && path
+                .extension()
+                .is_some_and(|s| s.to_str().is_some_and(|s| s == "py"))
         {
             python_files.push(path.to_path_buf());
         }
