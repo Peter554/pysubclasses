@@ -535,3 +535,39 @@ class IntContainer(Container[int]):
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_nested_classes() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create base class and nested subclass
+    temp.child("classes.py")
+        .write_str(
+            r#"
+class Foo:
+    pass
+
+class Bar:
+    class SomeFoo(Foo):
+        pass
+
+class Baz:
+    class AnotherFoo(Foo):
+        pass
+"#,
+        )
+        .unwrap();
+
+    // Should find both nested subclasses
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Foo")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Bar.SomeFoo"))
+        .stdout(predicate::str::contains("Baz.AnotherFoo"))
+        .stdout(predicate::str::contains("classes"));
+
+    temp.close().unwrap();
+}
