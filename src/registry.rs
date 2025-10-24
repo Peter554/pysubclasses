@@ -24,7 +24,6 @@ impl ClassId {
 /// Information about where a class is defined.
 #[derive(Debug, Clone)]
 pub struct ClassInfo {
-    pub id: ClassId,
     pub file_path: PathBuf,
     pub bases: Vec<BaseClass>,
 }
@@ -191,7 +190,6 @@ impl ClassRegistry {
         let id = ClassId::new(class.module_path, class.name.clone());
 
         let info = ClassInfo {
-            id: id.clone(),
             file_path: class.file_path,
             bases: class.bases,
         };
@@ -209,23 +207,6 @@ impl ClassRegistry {
     /// Finds all classes with a given name.
     pub fn find_by_name(&self, name: &str) -> Option<&Vec<ClassId>> {
         self.name_index.get(name)
-    }
-
-    /// Finds a specific class by name and optional module path.
-    pub fn find_class(&self, name: &str, module_path: Option<&str>) -> Option<&ClassInfo> {
-        if let Some(module) = module_path {
-            let id = ClassId::new(module.to_string(), name.to_string());
-            self.classes.get(&id)
-        } else {
-            // No module specified, find by name alone
-            let matches = self.find_by_name(name)?;
-            if matches.len() == 1 {
-                self.classes.get(&matches[0])
-            } else {
-                // Ambiguous
-                None
-            }
-        }
     }
 
     /// Gets class info by ClassId.
@@ -386,11 +367,6 @@ impl ClassRegistry {
     pub fn len(&self) -> usize {
         self.classes.len()
     }
-
-    /// Returns true if the registry is empty.
-    pub fn is_empty(&self) -> bool {
-        self.classes.is_empty()
-    }
 }
 
 #[cfg(test)]
@@ -416,10 +392,6 @@ mod tests {
         let matches = registry.find_by_name("Dog").unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].class_name, "Dog");
-
-        // Find by name and module
-        let info = registry.find_class("Dog", Some("animals")).unwrap();
-        assert_eq!(info.id.class_name, "Dog");
     }
 
     #[test]
@@ -452,13 +424,6 @@ mod tests {
         // Should find both
         let matches = registry.find_by_name("Animal").unwrap();
         assert_eq!(matches.len(), 2);
-
-        // Without module path, find_class returns None for ambiguous names
-        assert!(registry.find_class("Animal", None).is_none());
-
-        // With module path, should find the right one
-        let info = registry.find_class("Animal", Some("zoo")).unwrap();
-        assert_eq!(info.id.module_path, "zoo");
     }
 
     #[test]

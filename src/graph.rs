@@ -86,16 +86,6 @@ impl InheritanceGraph {
 
         result
     }
-
-    /// Gets the immediate children of a class.
-    pub fn get_children(&self, class_id: &ClassId) -> Option<&Vec<ClassId>> {
-        self.children.get(class_id)
-    }
-
-    /// Returns true if the given class has any subclasses.
-    pub fn has_subclasses(&self, class_id: &ClassId) -> bool {
-        self.children.contains_key(class_id)
-    }
 }
 
 #[cfg(test)]

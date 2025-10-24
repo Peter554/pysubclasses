@@ -15,26 +15,6 @@ use crate::parser::Import;
 ///
 /// The dotted module path (e.g., `foo.bar.baz` for `root/foo/bar/baz.py`).
 /// Returns `None` if the file path cannot be converted to a module path.
-///
-/// # Examples
-///
-/// ```
-/// use pysubclasses::utils::file_path_to_module_path;
-/// use std::path::Path;
-///
-/// let module = file_path_to_module_path(
-///     Path::new("/project/src/foo/bar.py"),
-///     Path::new("/project/src")
-/// );
-/// assert_eq!(module, Some("foo.bar".to_string()));
-///
-/// // __init__.py files become the parent package
-/// let module = file_path_to_module_path(
-///     Path::new("/project/src/foo/__init__.py"),
-///     Path::new("/project/src")
-/// );
-/// assert_eq!(module, Some("foo".to_string()));
-/// ```
 pub fn file_path_to_module_path(file_path: &Path, root_dir: &Path) -> Option<String> {
     // Get the relative path from root_dir to file_path
     let rel_path = file_path.strip_prefix(root_dir).ok()?;
@@ -128,7 +108,7 @@ pub fn resolve_name(
     None
 }
 
-/// Resolves a relative import to an absolute module path.
+/// Resolves a relative import to the base module path.
 ///
 /// This follows Python's relative import semantics as described in PEP 328.
 ///

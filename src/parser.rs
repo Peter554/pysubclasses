@@ -16,16 +16,6 @@ pub enum BaseClass {
     Attribute(Vec<String>),
 }
 
-impl BaseClass {
-    /// Get the simple name of the base class (rightmost component).
-    pub fn name(&self) -> &str {
-        match self {
-            BaseClass::Simple(name) => name,
-            BaseClass::Attribute(parts) => parts.last().unwrap(),
-        }
-    }
-}
-
 /// Represents a Python class definition.
 #[derive(Debug, Clone)]
 pub struct ClassDefinition {

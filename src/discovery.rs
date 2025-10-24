@@ -18,18 +18,6 @@ use crate::error::Result;
 /// # Returns
 ///
 /// A vector of paths to all `.py` files found in the directory tree.
-///
-/// # Examples
-///
-/// ```no_run
-/// use pysubclasses::discovery::discover_python_files;
-/// use std::path::Path;
-///
-/// let files = discover_python_files(Path::new("./src")).unwrap();
-/// for file in files {
-///     println!("{}", file.display());
-/// }
-/// ```
 pub fn discover_python_files(root_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut python_files = Vec::new();
 

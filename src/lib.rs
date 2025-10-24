@@ -21,12 +21,12 @@
 //! # }
 //! ```
 
-pub mod discovery;
-pub mod error;
-pub mod graph;
-pub mod parser;
-pub mod registry;
-pub mod utils;
+pub(crate) mod discovery;
+pub(crate) mod error;
+pub(crate) mod graph;
+pub(crate) mod parser;
+pub(crate) mod registry;
+pub(crate) mod utils;
 
 use std::path::PathBuf;
 
