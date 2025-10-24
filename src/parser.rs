@@ -174,7 +174,7 @@ fn extract_base_class(expr: &Expr) -> Option<BaseClass> {
         Expr::Name(name) => Some(BaseClass::Simple(name.id.to_string())),
 
         // Attribute: class Foo(module.Bar) or class Foo(pkg.mod.Bar)
-        Expr::Attribute(_attr) => {
+        Expr::Attribute(_) => {
             let mut parts = Vec::new();
             let mut current = expr;
 
@@ -205,7 +205,7 @@ fn extract_base_class(expr: &Expr) -> Option<BaseClass> {
     }
 }
 
-/// Resolves an import name to a fully qualified module path.
+/// Resolves a name to a fully qualified module path.
 ///
 /// Given a name used in the code and the imports in the file, determine
 /// what module path it refers to.
@@ -220,7 +220,7 @@ fn extract_base_class(expr: &Expr) -> Option<BaseClass> {
 /// # Returns
 ///
 /// The fully qualified name, or None if it cannot be resolved.
-pub fn resolve_import(
+pub fn resolve_name(
     name: &str,
     imports: &[Import],
     current_module: &str,
@@ -253,24 +253,18 @@ pub fn resolve_import(
                     .iter()
                     .find(|(n, alias)| alias.as_ref().unwrap_or(n) == name)
                 {
-                    let base =
-                        resolve_relative_import_with_context(current_module, *level, is_package)?;
-                    return Some(build_qualified_name(&base, rel_module.as_deref(), n));
+                    let base = resolve_relative_import_base(current_module, *level, is_package)?;
+                    return Some(match (base.is_empty(), rel_module) {
+                        (true, None) => n.to_string(),
+                        (true, Some(m)) => format!("{m}.{n}"),
+                        (false, None) => format!("{base}.{n}"),
+                        (false, Some(m)) => format!("{base}.{m}.{n}"),
+                    });
                 }
             }
         }
     }
     None
-}
-
-/// Builds a qualified name from base, optional module, and name components.
-fn build_qualified_name(base: &str, module: Option<&str>, name: &str) -> String {
-    match (base.is_empty(), module) {
-        (true, None) => name.to_string(),
-        (true, Some(m)) => format!("{m}.{name}"),
-        (false, None) => format!("{base}.{name}"),
-        (false, Some(m)) => format!("{base}.{m}.{name}"),
-    }
 }
 
 /// Resolves a relative import to an absolute module path.
@@ -286,14 +280,7 @@ fn build_qualified_name(base: &str, module: Option<&str>, name: &str) -> String 
 /// # Returns
 ///
 /// The base module path to which the relative import is resolved.
-///
-/// # Algorithm
-///
-/// Based on grimp's implementation:
-/// - For packages with level=1: base = current_module (stay in current package)
-/// - For packages with level>1: base = parts[0..parts.len() - level + 1]
-/// - For non-packages: base = parts[0..parts.len() - level]
-pub fn resolve_relative_import_with_context(
+pub fn resolve_relative_import_base(
     current_module: &str,
     level: usize,
     is_package: bool,
@@ -331,68 +318,50 @@ pub fn resolve_relative_import_with_context(
     Some(base)
 }
 
-/// Resolves a relative import to an absolute module path.
-///
-/// # Arguments
-///
-/// * `current_module` - The current module path (e.g., "foo.bar.baz")
-/// * `level` - Number of dots in the relative import (from Python AST)
-///
-/// # Returns
-///
-/// The base module path. In Python, level=1 means current package, level=2 means parent, etc.
-/// So we go up `level - 1` levels.
-///
-/// Note: This function assumes a module is specified. Use resolve_relative_import_with_context
-/// for more precise control.
-pub fn resolve_relative_import(current_module: &str, level: usize) -> Option<String> {
-    resolve_relative_import_with_context(current_module, level, true)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_relative_import() {
+    fn test_resolve_relative_import_base() {
         // Package with level=1: stay in current package
         // "foo.bar.baz" package (__init__.py) with level=1 stays at "foo.bar.baz"
         assert_eq!(
-            resolve_relative_import_with_context("foo.bar.baz", 1, true),
+            resolve_relative_import_base("foo.bar.baz", 1, true),
             Some("foo.bar.baz".to_string())
         );
         // Package with level=2: go up 1 parent
         assert_eq!(
-            resolve_relative_import_with_context("foo.bar.baz", 2, true),
+            resolve_relative_import_base("foo.bar.baz", 2, true),
             Some("foo.bar".to_string())
         );
         // Package with level=3: go up 2 parents
         assert_eq!(
-            resolve_relative_import_with_context("foo.bar.baz", 3, true),
+            resolve_relative_import_base("foo.bar.baz", 3, true),
             Some("foo".to_string())
         );
 
         // Regular module with level=1: go to containing package
         // "foo.bar.baz" module with level=1 goes to "foo.bar"
         assert_eq!(
-            resolve_relative_import_with_context("foo.bar.baz", 1, false),
+            resolve_relative_import_base("foo.bar.baz", 1, false),
             Some("foo.bar".to_string())
         );
 
         // Single-component package with level=1: stay in package
         assert_eq!(
-            resolve_relative_import_with_context("mypackage", 1, true),
+            resolve_relative_import_base("mypackage", 1, true),
             Some("mypackage".to_string())
         );
         // Single-component module with level=1: go to empty (top level)
         assert_eq!(
-            resolve_relative_import_with_context("mypackage", 1, false),
+            resolve_relative_import_base("mypackage", 1, false),
             Some(String::new())
         );
     }
 
     #[test]
-    fn test_resolve_import() {
+    fn test_resolve_name() {
         let imports = vec![
             Import::From {
                 module: "animals".to_string(),
@@ -409,16 +378,16 @@ mod tests {
         ];
 
         assert_eq!(
-            resolve_import("Dog", &imports, "test.module", false),
+            resolve_name("Dog", &imports, "test.module", false),
             Some("animals.Dog".to_string())
         );
         assert_eq!(
-            resolve_import("Kitty", &imports, "test.module", false),
+            resolve_name("Kitty", &imports, "test.module", false),
             Some("pets.Cat".to_string())
         );
-        assert_eq!(resolve_import("Cat", &imports, "test.module", false), None);
+        assert_eq!(resolve_name("Cat", &imports, "test.module", false), None);
         assert_eq!(
-            resolve_import("zoo", &imports, "test.module", false),
+            resolve_name("zoo", &imports, "test.module", false),
             Some("zoo".to_string())
         );
 
@@ -438,19 +407,19 @@ mod tests {
 
         // from .base import Animal (in mypackage.dog - module, not package)
         assert_eq!(
-            resolve_import("Animal", &rel_imports, "mypackage.dog", false),
+            resolve_name("Animal", &rel_imports, "mypackage.dog", false),
             Some("mypackage.base.Animal".to_string())
         );
 
         // from . import Cat (in mypackage.dog - imports from parent package)
         assert_eq!(
-            resolve_import("Cat", &rel_imports, "mypackage.dog", false),
+            resolve_name("Cat", &rel_imports, "mypackage.dog", false),
             Some("mypackage.Cat".to_string())
         );
     }
 
     #[test]
-    fn test_relative_import_multiple_levels() {
+    fn test_resolve_name_relative_import_multiple_levels() {
         let imports = vec![
             Import::RelativeFrom {
                 level: 2,
@@ -466,19 +435,19 @@ mod tests {
 
         // from ..utils import Helper (in pkg.sub.module - goes up 2, into utils)
         assert_eq!(
-            resolve_import("Helper", &imports, "pkg.sub.module", false),
+            resolve_name("Helper", &imports, "pkg.sub.module", false),
             Some("pkg.utils.Helper".to_string())
         );
 
         // from ... import Config (in pkg.sub.module - goes up 3 to top level)
         assert_eq!(
-            resolve_import("Config", &imports, "pkg.sub.module", false),
+            resolve_name("Config", &imports, "pkg.sub.module", false),
             Some("Config".to_string())
         );
     }
 
     #[test]
-    fn test_relative_import_from_init() {
+    fn test_resolve_name_relative_import_from_init() {
         // Test imports when current module is a package __init__
         let imports = vec![Import::RelativeFrom {
             level: 1,
@@ -488,13 +457,13 @@ mod tests {
 
         // from ._core import Node (in mypackage.__init__)
         assert_eq!(
-            resolve_import("Node", &imports, "mypackage", true),
+            resolve_name("Node", &imports, "mypackage", true),
             Some("mypackage._core.Node".to_string())
         );
     }
 
     #[test]
-    fn test_relative_import_edge_cases() {
+    fn test_resolve_name_relative_import_edge_cases() {
         // Test edge case: module with single component
         let imports = vec![Import::RelativeFrom {
             level: 1,
@@ -504,7 +473,7 @@ mod tests {
 
         // from . import Foo (in top-level module - should go to empty string)
         assert_eq!(
-            resolve_import("Foo", &imports, "toplevel", false),
+            resolve_name("Foo", &imports, "toplevel", false),
             Some("Foo".to_string())
         );
     }

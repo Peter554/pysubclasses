@@ -131,7 +131,7 @@ impl ClassRegistry {
                         } => {
                             // Resolve the relative import
                             let is_package = self.packages.contains(module_path);
-                            if let Some(base) = crate::parser::resolve_relative_import_with_context(
+                            if let Some(base) = crate::parser::resolve_relative_import_base(
                                 module_path,
                                 *level,
                                 is_package,
@@ -286,7 +286,7 @@ impl ClassRegistry {
                 if let Some(imports) = self.imports.get(context_module) {
                     let is_package = self.packages.contains(context_module);
                     if let Some(qualified) =
-                        crate::parser::resolve_import(name, imports, context_module, is_package)
+                        crate::parser::resolve_name(name, imports, context_module, is_package)
                     {
                         // The import tells us it's from a specific module
                         // Try to find a class with this name in that module
@@ -328,7 +328,7 @@ impl ClassRegistry {
                     // Check if this module path matches an import
                     if let Some(imports) = self.imports.get(context_module) {
                         let is_package = self.packages.contains(context_module);
-                        if let Some(resolved) = crate::parser::resolve_import(
+                        if let Some(resolved) = crate::parser::resolve_name(
                             &parts[0],
                             imports,
                             context_module,
