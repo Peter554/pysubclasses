@@ -26,6 +26,7 @@ pub mod error;
 pub mod graph;
 pub mod parser;
 pub mod registry;
+pub mod utils;
 
 use std::path::PathBuf;
 
@@ -100,7 +101,7 @@ impl SubclassFinder {
             .par_iter()
             .filter_map(|file_path| {
                 // Convert file path to module path
-                let module_path = discovery::file_path_to_module_path(file_path, &root_dir)?;
+                let module_path = utils::file_path_to_module_path(file_path, &root_dir)?;
                 match parser::parse_file(file_path, &module_path) {
                     Ok(parsed) => Some(parsed),
                     Err(e) => {

@@ -96,11 +96,6 @@ impl InheritanceGraph {
     pub fn has_subclasses(&self, class_id: &ClassId) -> bool {
         self.children.contains_key(class_id)
     }
-
-    /// Returns the total number of parent-child relationships in the graph.
-    pub fn edge_count(&self) -> usize {
-        self.children.values().map(|v| v.len()).sum()
-    }
 }
 
 #[cfg(test)]
