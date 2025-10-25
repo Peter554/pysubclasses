@@ -21,18 +21,15 @@
 //! # }
 //! ```
 
-pub(crate) mod discovery;
-pub(crate) mod error;
-pub(crate) mod graph;
-pub(crate) mod parser;
-pub(crate) mod registry;
-pub(crate) mod utils;
+pub mod discovery;
+pub mod error;
+pub mod graph;
+pub mod parser;
 
 use std::path::PathBuf;
 
 pub use error::{Error, Result};
 use graph::InheritanceGraph;
-use registry::{ClassId, ClassRegistry};
 
 /// A reference to a Python class.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +71,6 @@ impl ClassReference {
 /// ```
 pub struct SubclassFinder {
     root_dir: PathBuf,
-    registry: ClassRegistry,
     graph: InheritanceGraph,
 }
 
@@ -111,17 +107,10 @@ impl SubclassFinder {
             })
             .collect();
 
-        // Build registry from parsed files
-        let registry = ClassRegistry::new(parsed_files);
-
         // Build the inheritance graph
-        let graph = graph::InheritanceGraph::build(&registry);
+        let graph = graph::InheritanceGraph::build(&parsed_files);
 
-        Ok(Self {
-            root_dir,
-            registry,
-            graph,
-        })
+        Ok(Self { root_dir, graph })
     }
 
     /// Finds all transitive subclasses of a given class.
@@ -165,91 +154,5 @@ impl SubclassFinder {
         class_name: &str,
         module_path: Option<&str>,
     ) -> Result<Vec<ClassReference>> {
-        // Find the target class
-        let target_id = self.find_target_class(class_name, module_path)?;
-
-        // Find all subclasses
-        let subclass_ids = self.graph.find_all_subclasses(&target_id);
-
-        // Convert to ClassReferences
-        let mut results: Vec<ClassReference> = subclass_ids
-            .into_iter()
-            .filter_map(|id| {
-                self.registry.get(&id).map(|info| ClassReference {
-                    class_name: id.class_name.clone(),
-                    module_path: id.module_path.clone(),
-                    file_path: info.file_path.clone(),
-                })
-            })
-            .collect();
-
-        // Sort by module path for consistent output
-        results.sort_by(|a, b| {
-            a.module_path
-                .cmp(&b.module_path)
-                .then(a.class_name.cmp(&b.class_name))
-        });
-
-        Ok(results)
     }
-
-    /// Finds the ClassId for the target class.
-    fn find_target_class(&self, class_name: &str, module_path: Option<&str>) -> Result<ClassId> {
-        // If module path provided, look for exact match or re-export
-        if let Some(module) = module_path {
-            let id = ClassId::new(module.to_string(), class_name.to_string());
-
-            // Try direct lookup first
-            if self.registry.get(&id).is_some() {
-                return Ok(id);
-            }
-
-            // Try resolving through re-exports
-            if let Some(resolved) = self.registry.resolve_class_through_reexports(&id) {
-                return Ok(resolved);
-            }
-
-            return Err(Error::ClassNotFound {
-                name: class_name.to_string(),
-                module_path: Some(module.to_string()),
-            });
-        }
-
-        // Otherwise find by name
-        let matches = self
-            .registry
-            .find_by_name(class_name)
-            .filter(|ids| !ids.is_empty())
-            .ok_or_else(|| Error::ClassNotFound {
-                name: class_name.to_string(),
-                module_path: None,
-            })?;
-
-        match matches.len() {
-            1 => Ok(matches[0].clone()),
-            _ => {
-                let candidates = matches.iter().map(|id| id.module_path.clone()).collect();
-                Err(Error::AmbiguousClassName {
-                    name: class_name.to_string(),
-                    candidates,
-                })
-            }
-        }
-    }
-
-    /// Returns the number of classes found in the codebase.
-    pub fn class_count(&self) -> usize {
-        self.registry.len()
-    }
-
-    /// Returns the root directory being searched.
-    pub fn root_dir(&self) -> &PathBuf {
-        &self.root_dir
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    // Integration tests will be in tests/ directory
 }
