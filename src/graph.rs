@@ -25,7 +25,27 @@ pub struct ClassId {
 pub struct InheritanceGraph {
     pub modules: HashMap<ModuleName, ModuleMetadata>,
     pub classes: HashMap<ModuleName, Vec<ClassId>>,
-    pub children: HashMap<ClassId, Vec<ClassId>>,
+    pub imports: HashMap<ModuleName, Vec<ResolvedImport>>,
+    pub class_children: HashMap<ClassId, Vec<ClassId>>,
+}
+
+/// An enum representing a resolved import.
+///
+/// `import X` is always an imported module.
+///
+/// `from X import Y` can be either a module import, or a module member import.
+/// This can be determined by first seeing if the module X.Y exists. If so then this is a module import of module X.Y.
+/// If not we check if the module X exists. If so then this is an import of the member Y from the module X.
+pub enum ResolvedImport {
+    Module {
+        module: ModuleName,
+        imported_as: String,
+    },
+    ModuleMember {
+        module: ModuleName,
+        member: String,
+        imported_as: String,
+    },
 }
 
 impl InheritanceGraph {
