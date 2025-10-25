@@ -54,6 +54,8 @@ pub enum Import {
 /// The result of parsing a Python file.
 #[derive(Debug)]
 pub struct ParsedFile {
+    /// The path of this file
+    pub file_path: PathBuf,
     /// The module path of this file
     pub module_path: String,
     /// Class definitions found in this file
@@ -138,6 +140,7 @@ pub fn parse_file(file_path: &Path, module_path: &str) -> Result<ParsedFile> {
         .unwrap_or(false);
 
     Ok(ParsedFile {
+        file_path: file_path.to_path_buf(),
         module_path: module_path.to_string(),
         classes,
         imports,
