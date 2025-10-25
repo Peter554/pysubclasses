@@ -7,7 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::utils;
 
 /// Represents a base class reference in a class definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -92,11 +91,9 @@ pub fn parse_files(root_dir: &Path, python_files: &[PathBuf]) -> Result<Vec<Resu
         .map(|file_path| {
             // Convert file path to module path
             let module_path =
-                utils::file_path_to_module_path(file_path, root_dir).ok_or_else(|| {
-                    Error::ParseError {
-                        file: file_path.to_path_buf(),
-                        error: "Failed to convert file path to module path".to_string(),
-                    }
+                file_path_to_module_path(file_path, root_dir).ok_or_else(|| Error::ParseError {
+                    file: file_path.to_path_buf(),
+                    error: "Failed to convert file path to module path".to_string(),
                 })?;
             parse_file(file_path, &module_path)
         })
@@ -288,9 +285,94 @@ fn extract_base_class(expr: &Expr) -> Option<BaseClass> {
     }
 }
 
+/// Converts a file path to a Python module path.
+///
+/// # Arguments
+///
+/// * `file_path` - The absolute or relative path to a Python file
+/// * `root_dir` - The root directory of the Python project
+///
+/// # Returns
+///
+/// The dotted module path (e.g., `foo.bar.baz` for `root/foo/bar/baz.py`).
+/// Returns `None` if the file path cannot be converted to a module path.
+fn file_path_to_module_path(file_path: &Path, root_dir: &Path) -> Option<String> {
+    // Get the relative path from root_dir to file_path
+    let rel_path = file_path.strip_prefix(root_dir).ok()?;
+
+    // Remove the .py extension
+    let without_ext = rel_path.with_extension("");
+
+    // Convert path components to module path
+    let components: Vec<&str> = without_ext
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+
+    if components.is_empty() {
+        return None;
+    }
+
+    // Handle __init__.py - it represents the parent package
+    let module_parts = if components.last() == Some(&"__init__") {
+        &components[..components.len() - 1]
+    } else {
+        &components[..]
+    };
+
+    if module_parts.is_empty() {
+        return None;
+    }
+
+    Some(module_parts.join("."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_file_path_to_module_path() {
+        // Regular module
+        let path = Path::new("/project/src/foo/bar/baz.py");
+        let root = Path::new("/project/src");
+        assert_eq!(
+            file_path_to_module_path(path, root),
+            Some("foo.bar.baz".to_string())
+        );
+
+        // __init__.py
+        let path = Path::new("/project/src/foo/bar/__init__.py");
+        let root = Path::new("/project/src");
+        assert_eq!(
+            file_path_to_module_path(path, root),
+            Some("foo.bar".to_string())
+        );
+
+        // Top-level module
+        let path = Path::new("/project/src/module.py");
+        let root = Path::new("/project/src");
+        assert_eq!(
+            file_path_to_module_path(path, root),
+            Some("module".to_string())
+        );
+
+        // Top-level __init__.py (edge case)
+        let path = Path::new("/project/src/__init__.py");
+        let root = Path::new("/project/src");
+        assert_eq!(file_path_to_module_path(path, root), None);
+    }
+
+    #[test]
+    fn test_file_path_to_module_path_relative() {
+        // Test with matching prefixes
+        let path = Path::new("./foo/bar.py");
+        let root = Path::new(".");
+        assert_eq!(
+            file_path_to_module_path(path, root),
+            Some("foo.bar".to_string())
+        );
+    }
 
     #[test]
     fn test_nested_class_extraction() {
