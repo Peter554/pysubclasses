@@ -31,6 +31,7 @@ pub(crate) mod utils;
 use std::path::PathBuf;
 
 pub use error::{Error, Result};
+use graph::InheritanceGraph;
 use registry::{ClassId, ClassRegistry};
 
 /// A reference to a Python class.
@@ -74,6 +75,7 @@ impl ClassReference {
 pub struct SubclassFinder {
     root_dir: PathBuf,
     registry: ClassRegistry,
+    graph: InheritanceGraph,
 }
 
 impl SubclassFinder {
@@ -112,7 +114,14 @@ impl SubclassFinder {
         // Build registry from parsed files
         let registry = ClassRegistry::new(parsed_files);
 
-        Ok(Self { root_dir, registry })
+        // Build the inheritance graph
+        let graph = graph::InheritanceGraph::build(&registry);
+
+        Ok(Self {
+            root_dir,
+            registry,
+            graph,
+        })
     }
 
     /// Finds all transitive subclasses of a given class.
@@ -159,11 +168,8 @@ impl SubclassFinder {
         // Find the target class
         let target_id = self.find_target_class(class_name, module_path)?;
 
-        // Build the inheritance graph
-        let graph = graph::InheritanceGraph::build(&self.registry);
-
         // Find all subclasses
-        let subclass_ids = graph.find_all_subclasses(&target_id);
+        let subclass_ids = self.graph.find_all_subclasses(&target_id);
 
         // Convert to ClassReferences
         let mut results: Vec<ClassReference> = subclass_ids
