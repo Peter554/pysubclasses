@@ -1,11 +1,13 @@
 //! Python AST parsing module for extracting class definitions and imports.
 
+use rayon::prelude::*;
 use ruff_python_ast::{Expr, Stmt};
 use ruff_python_parser::parse_module;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
+use crate::utils;
 
 /// Represents a base class reference in a class definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -61,6 +63,44 @@ pub struct ParsedFile {
     pub imports: Vec<Import>,
     /// Whether this is a package (__init__.py file)
     pub is_package: bool,
+}
+
+/// Parses multiple Python files in parallel.
+///
+/// This function processes a collection of Python files concurrently using Rayon's
+/// parallel iterators. Each file's parse result is preserved in the returned vector,
+/// allowing the caller to decide how to handle errors.
+///
+/// # Arguments
+///
+/// * `root_dir` - The root directory of the Python project, used to compute module paths
+/// * `python_files` - Slice of paths to Python files to parse
+///
+/// # Returns
+///
+/// A vector containing the parse result for each file. Successful parses return
+/// `Ok(ParsedFile)`, while failures return `Err` with details about the error.
+///
+/// # Errors
+///
+/// Returns an `Err` only if there's a fundamental issue with the parallel processing
+/// infrastructure itself. Individual file parse errors are returned as `Err` variants
+/// within the result vector.
+pub fn parse_files(root_dir: &Path, python_files: &[PathBuf]) -> Result<Vec<Result<ParsedFile>>> {
+    Ok(python_files
+        .par_iter()
+        .map(|file_path| {
+            // Convert file path to module path
+            let module_path =
+                utils::file_path_to_module_path(file_path, root_dir).ok_or_else(|| {
+                    Error::ParseError {
+                        file: file_path.to_path_buf(),
+                        error: "Failed to convert file path to module path".to_string(),
+                    }
+                })?;
+            parse_file(file_path, &module_path)
+        })
+        .collect())
 }
 
 /// Parses a Python file and extracts class definitions and imports.

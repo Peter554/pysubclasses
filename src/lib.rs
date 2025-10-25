@@ -30,8 +30,6 @@ pub(crate) mod utils;
 
 use std::path::PathBuf;
 
-use rayon::prelude::*;
-
 pub use error::{Error, Result};
 use registry::{ClassId, ClassRegistry};
 
@@ -97,18 +95,16 @@ impl SubclassFinder {
         let python_files = discovery::discover_python_files(&root_dir)?;
 
         // Parse files in parallel and collect results
-        let parsed_files: Vec<_> = python_files
-            .par_iter()
-            .filter_map(|file_path| {
-                // Convert file path to module path
-                let module_path = utils::file_path_to_module_path(file_path, &root_dir)?;
-                match parser::parse_file(file_path, &module_path) {
-                    Ok(parsed) => Some(parsed),
-                    Err(e) => {
-                        // Log parse errors but continue
-                        eprintln!("Warning: {e}");
-                        None
-                    }
+        let parse_results = parser::parse_files(&root_dir, &python_files)?;
+
+        // Log any parse errors and collect successful parses
+        let parsed_files: Vec<_> = parse_results
+            .into_iter()
+            .filter_map(|result| match result {
+                Ok(parsed) => Some(parsed),
+                Err(e) => {
+                    eprintln!("Warning: {e}");
+                    None
                 }
             })
             .collect();
