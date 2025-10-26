@@ -30,7 +30,7 @@ pub struct ClassDefinition {
 /// `from a import b` => { imported_item=a.b, imported_as=b }
 /// `from a import b as c` => { imported_item=a.b, imported_as=c }
 /// `from a.b import c` => { imported_item=a.b.c, imported_as=c }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Import {
     pub imported_item: String,
     pub imported_as: String,
@@ -187,47 +187,58 @@ fn extract_from_statements(
                 );
             }
             Stmt::Import(import_stmt) => {
-                // Only process imports at the top level (not inside classes)
-                if parent_class.is_none() {
-                    for alias in &import_stmt.names {
-                        imports.push(Import::Module {
-                            module: alias.name.to_string(),
-                            alias: alias.asname.as_ref().map(|a| a.to_string()),
-                        });
-                    }
+                for alias in &import_stmt.names {
+                    // `import a` => { imported_item=a, imported_as=a }
+                    // `import a.b as c` => { imported_item=a.b, imported_as=c }
+                    let imported_item = alias.name.to_string();
+                    let imported_as = alias
+                        .asname
+                        .as_ref()
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| imported_item.clone());
+                    imports.push(Import {
+                        imported_item,
+                        imported_as,
+                    });
                 }
             }
             Stmt::ImportFrom(import_from) => {
-                // Only process imports at the top level (not inside classes)
-                if parent_class.is_none() {
-                    let level = import_from.level as usize;
-                    let names: Vec<(String, Option<String>)> = import_from
-                        .names
-                        .iter()
-                        .map(|alias| {
-                            (
-                                alias.name.to_string(),
-                                alias.asname.as_ref().map(|a| a.to_string()),
-                            )
-                        })
-                        .collect();
+                let level = import_from.level as usize;
 
-                    if level > 0 {
-                        imports.push(Import::RelativeFrom {
-                            level,
-                            module: import_from.module.as_ref().map(|m| m.to_string()),
-                            names,
-                        });
+                for alias in &import_from.names {
+                    let name = alias.name.to_string();
+                    let imported_as = alias
+                        .asname
+                        .as_ref()
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| name.clone());
+
+                    let imported_item = if level > 0 {
+                        // Relative import: resolve to absolute module path
+                        let base_module = resolve_relative_module(module_path, level, file_path);
+                        if let Some(from_module) = import_from.module.as_ref() {
+                            format!("{base_module}.{from_module}.{name}")
+                        } else {
+                            format!("{base_module}.{name}")
+                        }
                     } else {
-                        imports.push(Import::From {
-                            module: import_from
-                                .module
-                                .as_ref()
-                                .map(|m| m.to_string())
-                                .unwrap_or_default(),
-                            names,
-                        });
-                    }
+                        // Absolute import: from a.b import c => a.b.c
+                        let from_module = import_from
+                            .module
+                            .as_ref()
+                            .map(|m| m.to_string())
+                            .unwrap_or_default();
+                        if from_module.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{from_module}.{name}")
+                        }
+                    };
+
+                    imports.push(Import {
+                        imported_item,
+                        imported_as,
+                    });
                 }
             }
             _ => {}
@@ -235,11 +246,45 @@ fn extract_from_statements(
     }
 }
 
-/// Extracts a base class reference from an expression.
-fn extract_base_class(expr: &Expr) -> Option<BaseClass> {
+/// Resolves a relative import to an absolute module path.
+///
+/// # Arguments
+///
+/// * `current_module` - The module path of the file doing the import
+/// * `level` - The number of dots in the relative import
+/// * `file_path` - The file path (used to determine if this is a package)
+///
+/// # Returns
+///
+/// The base module path for the relative import
+fn resolve_relative_module(current_module: &str, level: usize, file_path: &Path) -> String {
+    let is_package = file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name == "__init__.py")
+        .unwrap_or(false);
+
+    let parts: Vec<&str> = current_module.split('.').collect();
+
+    // If this is a package (__init__.py), level 1 means current package
+    // If this is a module, level 1 means parent package
+    let base_level = if is_package { level - 1 } else { level };
+
+    // Go up 'base_level' directories
+    if base_level >= parts.len() {
+        // Going too far up - return empty string
+        String::new()
+    } else {
+        parts[..parts.len() - base_level].join(".")
+    }
+}
+
+/// Extracts a base class reference from an expression as a string.
+/// Returns strings like "Foo" or "module.Foo" or "pkg.mod.Foo"
+fn extract_base_class(expr: &Expr) -> Option<String> {
     match expr {
         // Simple name: class Foo(Bar)
-        Expr::Name(name) => Some(BaseClass::Simple(name.id.to_string())),
+        Expr::Name(name) => Some(name.id.to_string()),
 
         // Attribute: class Foo(module.Bar) or class Foo(pkg.mod.Bar)
         Expr::Attribute(_) => {
@@ -262,7 +307,7 @@ fn extract_base_class(expr: &Expr) -> Option<BaseClass> {
             }
 
             parts.reverse();
-            Some(BaseClass::Attribute(parts))
+            Some(parts.join("."))
         }
 
         // Subscript: class Foo(Generic[T]) - extract the base without the subscript
@@ -411,7 +456,7 @@ class TopLevel(Foo):
             .find(|c| c.name == "Bar.NestedInBar")
             .unwrap();
         assert_eq!(nested_in_bar.bases.len(), 1);
-        assert_eq!(nested_in_bar.bases[0], BaseClass::Simple("Foo".to_string()));
+        assert_eq!(nested_in_bar.bases[0], "Foo");
 
         // Verify that DoublyNested has Foo as a base
         let doubly_nested = parsed
@@ -420,6 +465,6 @@ class TopLevel(Foo):
             .find(|c| c.name == "Bar.AnotherNested.DoublyNested")
             .unwrap();
         assert_eq!(doubly_nested.bases.len(), 1);
-        assert_eq!(doubly_nested.bases[0], BaseClass::Simple("Foo".to_string()));
+        assert_eq!(doubly_nested.bases[0], "Foo");
     }
 }

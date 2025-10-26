@@ -4,36 +4,30 @@ use std::collections::{HashMap, HashSet};
 
 use crate::registry::{ClassId, Registry};
 
-pub type ModuleName = String;
-
 /// An inheritance graph mapping classes to their children.
 pub struct InheritanceGraph {
     pub children: HashMap<ClassId, HashSet<ClassId>>,
 }
 
-/// An enum representing a resolved import.
-///
-/// `import X` is always an imported module.
-///
-/// `from X import Y` can be either a module import, or a module member import.
-/// This can be determined by first seeing if the module X.Y exists. If so then this is a module import of module X.Y.
-/// If not we check if the module X exists. If so then this is an import of the member Y from the module X.
-pub enum ResolvedImport {
-    Module {
-        module: ModuleName,
-        imported_as: String,
-    },
-    ModuleMember {
-        module: ModuleName,
-        member: String,
-        imported_as: String,
-    },
-}
-
 impl InheritanceGraph {
-    pub fn build(registry: Registry) -> Self {
-        // TODO Use `registry.resolve_class`.
-        todo!()
+    pub fn build(registry: &Registry) -> Self {
+        let mut children: HashMap<ClassId, HashSet<ClassId>> = HashMap::new();
+
+        // Iterate through all classes and resolve their base classes
+        for (child_id, metadata) in &registry.classes {
+            for base_name in &metadata.bases {
+                // Try to resolve the base class using the registry
+                if let Some(parent_id) = registry.resolve_class(&child_id.module, base_name) {
+                    // Add child to parent's children set
+                    children
+                        .entry(parent_id)
+                        .or_default()
+                        .insert(child_id.clone());
+                }
+            }
+        }
+
+        Self { children }
     }
 
     /// Finds all transitive subclasses of a given class.
