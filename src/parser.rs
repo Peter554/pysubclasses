@@ -135,16 +135,20 @@ pub fn parse_file(file_path: &Path, module_path: &str) -> Result<ParsedFile> {
 
 /// Recursively extracts classes and imports from a list of statements.
 ///
-/// This function handles both top-level and nested class definitions.
+/// This function walks the AST and extracts:
+/// - Class definitions (including nested classes)
+/// - Import statements (both `import` and `from...import` forms)
+///
+/// Nested classes are represented with dot notation (e.g., "Outer.Inner").
 ///
 /// # Arguments
 ///
-/// * `stmts` - The statements to process
-/// * `parent_class` - The parent class name for nested classes (e.g., Some("Bar"))
-/// * `module_path` - The module path for this file
-/// * `file_path` - The file path
-/// * `classes` - Mutable vector to accumulate class definitions
-/// * `imports` - Mutable vector to accumulate imports (only at top level)
+/// * `stmts` - The AST statements to process
+/// * `parent_class` - The parent class name if processing nested classes (e.g., `Some("Outer")`)
+/// * `module_path` - The module path for this file (e.g., "foo.bar")
+/// * `file_path` - The file path (used for resolving relative imports)
+/// * `classes` - Mutable vector to accumulate discovered class definitions
+/// * `imports` - Mutable vector to accumulate discovered imports (only at top level)
 fn extract_from_statements(
     stmts: &[Stmt],
     parent_class: Option<&str>,
@@ -156,13 +160,14 @@ fn extract_from_statements(
     for stmt in stmts {
         match stmt {
             Stmt::ClassDef(class_def) => {
-                // Build the full class name (with parent prefix if nested)
+                // Build fully qualified class name (e.g., "Outer.Inner" for nested classes)
                 let full_name = if let Some(parent) = parent_class {
                     format!("{}.{}", parent, class_def.name)
                 } else {
                     class_def.name.to_string()
                 };
 
+                // Extract base classes, filtering out unresolvable references
                 let bases = class_def
                     .bases()
                     .iter()
@@ -176,7 +181,7 @@ fn extract_from_statements(
                     bases,
                 });
 
-                // Recursively extract nested classes
+                // Recursively process nested classes
                 extract_from_statements(
                     class_def.body.as_slice(),
                     Some(&full_name),
@@ -187,9 +192,9 @@ fn extract_from_statements(
                 );
             }
             Stmt::Import(import_stmt) => {
+                // Process `import foo` or `import foo as bar` statements
+                // Format: { imported_item: "foo", imported_as: "bar" }
                 for alias in &import_stmt.names {
-                    // `import a` => { imported_item=a, imported_as=a }
-                    // `import a.b as c` => { imported_item=a.b, imported_as=c }
                     let imported_item = alias.name.to_string();
                     let imported_as = alias
                         .asname
@@ -203,6 +208,7 @@ fn extract_from_statements(
                 }
             }
             Stmt::ImportFrom(import_from) => {
+                // Process `from foo import bar` or `from .foo import bar` statements
                 let level = import_from.level as usize;
 
                 for alias in &import_from.names {
@@ -214,7 +220,8 @@ fn extract_from_statements(
                         .unwrap_or_else(|| name.clone());
 
                     let imported_item = if level > 0 {
-                        // Relative import: resolve to absolute module path
+                        // Relative import: resolve dots to absolute module path
+                        // e.g., `from ..pkg import Foo` → "parent.pkg.Foo"
                         let base_module = resolve_relative_module(module_path, level, file_path);
                         if let Some(from_module) = import_from.module.as_ref() {
                             format!("{base_module}.{from_module}.{name}")
@@ -222,7 +229,8 @@ fn extract_from_statements(
                             format!("{base_module}.{name}")
                         }
                     } else {
-                        // Absolute import: from a.b import c => a.b.c
+                        // Absolute import: combine module and name
+                        // e.g., `from foo import Bar` → "foo.Bar"
                         let from_module = import_from
                             .module
                             .as_ref()
@@ -248,15 +256,34 @@ fn extract_from_statements(
 
 /// Resolves a relative import to an absolute module path.
 ///
+/// Relative imports in Python use dots to indicate the starting point:
+/// - `.foo` means "foo in the current package"
+/// - `..foo` means "foo in the parent package"
+/// - `...foo` means "foo in the grandparent package"
+///
+/// This function converts the relative path to an absolute module path based on
+/// the current module's location.
+///
 /// # Arguments
 ///
-/// * `current_module` - The module path of the file doing the import
-/// * `level` - The number of dots in the relative import
-/// * `file_path` - The file path (used to determine if this is a package)
+/// * `current_module` - The module path of the file containing the import (e.g., "pkg.sub.module")
+/// * `level` - The number of leading dots in the relative import (e.g., 2 for `..foo`)
+/// * `file_path` - The file path (used to check if this is a `__init__.py` package file)
 ///
 /// # Returns
 ///
-/// The base module path for the relative import
+/// The absolute module path that the relative import refers to.
+///
+/// # Examples
+///
+/// ```text
+/// # In pkg/sub/module.py (module path "pkg.sub.module"):
+/// from ..other import Foo  # level=2 → resolves to "pkg.other"
+///
+/// # In pkg/sub/__init__.py (module path "pkg.sub"):
+/// from ..other import Foo  # level=2 → resolves to "pkg.other"
+/// from .local import Bar   # level=1 → resolves to "pkg.sub.local"
+/// ```
 fn resolve_relative_module(current_module: &str, level: usize, file_path: &Path) -> String {
     let is_package = file_path
         .file_name()
@@ -266,13 +293,14 @@ fn resolve_relative_module(current_module: &str, level: usize, file_path: &Path)
 
     let parts: Vec<&str> = current_module.split('.').collect();
 
-    // If this is a package (__init__.py), level 1 means current package
-    // If this is a module, level 1 means parent package
+    // Packages start at themselves, modules start at their parent
+    // e.g., In "pkg.sub" package: level 1 = "pkg.sub", level 2 = "pkg"
+    //       In "pkg.sub.mod" module: level 1 = "pkg.sub", level 2 = "pkg"
     let base_level = if is_package { level - 1 } else { level };
 
-    // Go up 'base_level' directories
+    // Navigate up the package hierarchy
     if base_level >= parts.len() {
-        // Going too far up - return empty string
+        // Trying to go above the root - return empty (error case)
         String::new()
     } else {
         parts[..parts.len() - base_level].join(".")
