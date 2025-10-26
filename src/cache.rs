@@ -146,26 +146,20 @@ pub fn parse_with_cache(
         let parse_results = parser::parse_files(root_dir, &files_to_parse)?;
 
         // Update cache and collect results
-        for (file_path, result) in files_to_parse.iter().zip(parse_results.into_iter()) {
-            match &result {
-                Ok(parsed) => {
-                    if let Some((mtime, size)) = get_file_metadata(file_path) {
-                        cache.entries.insert(
-                            file_path.clone(),
-                            CacheEntry {
-                                mtime,
-                                size,
-                                parsed: parsed.clone(),
-                            },
-                        );
-                    }
-                }
-                Err(_) => {
-                    // Remove from cache if parse failed
-                    cache.entries.remove(file_path);
+        for parse_result in parse_results {
+            if let Ok(parsed) = &parse_result {
+                if let Some((mtime, size)) = get_file_metadata(&parsed.file_path) {
+                    cache.entries.insert(
+                        parsed.file_path.clone(),
+                        CacheEntry {
+                            mtime,
+                            size,
+                            parsed: parsed.clone(),
+                        },
+                    );
                 }
             }
-            results.push(result);
+            results.push(parse_result);
         }
     }
 
