@@ -1,582 +1,220 @@
 //! Class registry for tracking class definitions and resolving references.
+//!
+//! The registry maintains a complete index of all Python modules, classes, and imports
+//! found in a codebase. It provides functionality to resolve class references across
+//! modules, handling imports and re-exports correctly.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
-use crate::parser::{BaseClass, ClassDefinition, Import, ParsedFile};
+use crate::{
+    error::Result,
+    parser::{Import, ParsedFile},
+};
 
-/// A unique identifier for a class.
+/// Type alias for Python module names (e.g., "foo.bar.baz").
+pub type ModuleName = String;
+
+/// Metadata about a Python module.
+#[derive(Debug, Clone)]
+pub struct ModuleMetadata {
+    /// The file system path to this module.
+    pub file_path: PathBuf,
+    /// Whether this is a package (`__init__.py` file).
+    pub is_package: bool,
+}
+
+/// Metadata about a Python class definition.
+#[derive(Debug, Clone)]
+pub struct ClassMetadata {
+    /// The base classes this class inherits from.
+    ///
+    /// These are stored as unresolved strings (e.g., "Foo" or "module.Foo")
+    /// and must be resolved using the registry's import information.
+    pub bases: Vec<String>,
+}
+
+/// A unique identifier for a class within the codebase.
+///
+/// Consists of the module path and class name. Note that nested classes
+/// are represented with dot notation (e.g., "OuterClass.InnerClass").
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClassId {
-    pub module_path: String,
-    pub class_name: String,
+    /// The module path (e.g., "foo.bar").
+    pub module: ModuleName,
+    /// The class name, potentially including nesting (e.g., "Outer.Inner").
+    pub name: String,
 }
 
-impl ClassId {
-    pub fn new(module_path: String, class_name: String) -> Self {
-        Self {
-            module_path,
-            class_name,
-        }
-    }
+/// A registry of all modules, classes, and imports in a Python codebase.
+///
+/// The registry is built from parsed files and provides methods to:
+/// - Look up class definitions by name or module
+/// - Resolve class references through imports and re-exports
+/// - Track the inheritance relationships between classes
+pub struct Registry {
+    /// Metadata for each module in the codebase.
+    pub modules: HashMap<ModuleName, ModuleMetadata>,
+    /// Metadata for each class, indexed by ClassId.
+    pub classes: HashMap<ClassId, ClassMetadata>,
+    /// Index of classes organized by module for efficient lookup.
+    pub classes_by_module: HashMap<ModuleName, HashSet<ClassId>>,
+    /// Import statements for each module.
+    pub imports: HashMap<ModuleName, Vec<Import>>,
 }
 
-/// Information about where a class is defined.
-#[derive(Debug, Clone)]
-pub struct ClassInfo {
-    pub file_path: PathBuf,
-    pub bases: Vec<BaseClass>,
-}
-
-/// A registry of all classes found in a codebase.
-#[derive(Default)]
-pub struct ClassRegistry {
-    /// Map from ClassId to ClassInfo
-    classes: HashMap<ClassId, ClassInfo>,
-
-    /// Map from simple class name to all ClassIds with that name
-    /// (for ambiguity detection)
-    name_index: HashMap<String, Vec<ClassId>>,
-
-    /// Map from module path to imports in that module
-    imports: HashMap<String, Vec<Import>>,
-
-    /// Map from ClassId (re-exported location) to ClassId (original location)
-    /// E.g., foo.Bar -> foo._internal.Bar
-    re_exports: HashMap<ClassId, ClassId>,
-
-    /// Set of module paths that are packages (__init__.py files)
-    packages: std::collections::HashSet<String>,
-}
-
-impl ClassRegistry {
-    /// Creates a new class registry from a vector of parsed files.
+impl Registry {
+    /// Builds a registry from parsed Python files.
     ///
-    /// This will build the registry and resolve all re-exports.
-    pub fn new(parsed_files: Vec<ParsedFile>) -> Self {
-        let mut registry = Self::default();
+    /// This processes all parsed files to create indexes of modules, classes, and imports.
+    ///
+    /// # Arguments
+    ///
+    /// * `parsed_files` - The collection of parsed Python files
+    ///
+    /// # Returns
+    ///
+    /// A fully constructed registry ready for class resolution.
+    pub fn build(parsed_files: &[ParsedFile]) -> Result<Self> {
+        let mut modules = HashMap::new();
+        let mut classes = HashMap::new();
+        let mut classes_by_module: HashMap<ModuleName, HashSet<ClassId>> = HashMap::new();
+        let mut imports = HashMap::new();
 
-        // Add all files to the registry
         for parsed in parsed_files {
-            registry.add_file(parsed);
+            // Record module metadata
+            modules.insert(
+                parsed.module_path.clone(),
+                ModuleMetadata {
+                    file_path: parsed.file_path.clone(),
+                    is_package: parsed.is_package,
+                },
+            );
+
+            // Index all class definitions from this module
+            for class in &parsed.classes {
+                let class_id = ClassId {
+                    module: parsed.module_path.clone(),
+                    name: class.name.clone(),
+                };
+
+                classes.insert(
+                    class_id.clone(),
+                    ClassMetadata {
+                        bases: class.bases.clone(),
+                    },
+                );
+
+                classes_by_module
+                    .entry(parsed.module_path.clone())
+                    .or_default()
+                    .insert(class_id);
+            }
+
+            // Store import statements for later resolution
+            imports.insert(parsed.module_path.clone(), parsed.imports.clone());
         }
 
-        // Build re-export mappings now that all classes are registered
-        registry.build_reexports();
-
-        registry
+        Ok(Self {
+            modules,
+            classes,
+            classes_by_module,
+            imports,
+        })
     }
 
-    /// Adds a parsed file to the registry.
-    fn add_file(&mut self, parsed: ParsedFile) {
-        // Store imports for this module
-        self.imports
-            .insert(parsed.module_path.clone(), parsed.imports.clone());
-
-        // Track if this is a package
-        if parsed.is_package {
-            self.packages.insert(parsed.module_path.clone());
-        }
-
-        // Add all classes
-        for class in parsed.classes {
-            self.add_class(class);
-        }
-
-        // Track re-exports: when we import a class, it may be re-exported
-        // We'll do a second pass after all files are added
-    }
-
-    /// Second pass: build re-export mappings after all classes are registered.
-    /// This should be called after all files have been added.
+    /// Resolves a class name within a given module's context.
     ///
-    /// This may need multiple iterations to resolve transitive re-exports
-    /// (e.g., A re-exports from B, B re-exports from C).
-    fn build_reexports(&mut self) {
-        // Iterate until no new re-exports are added (fixed-point iteration)
-        let mut changed = true;
-        while changed {
-            changed = false;
-            let mut reexports_to_add = Vec::new();
-
-            for (module_path, imports) in &self.imports {
-                for import in imports {
-                    match import {
-                        Import::From { module, names } => {
-                            for (name, alias) in names {
-                                // The exported name is the alias if present, otherwise the original name
-                                let exported_name = alias.as_ref().unwrap_or(name);
-
-                                // Try to find the original class
-                                let original_module = module.clone();
-                                let original_id =
-                                    ClassId::new(original_module.clone(), name.clone());
-
-                                // Check if the class exists directly or as a re-export
-                                if self.classes.contains_key(&original_id)
-                                    || self.re_exports.contains_key(&original_id)
-                                {
-                                    // Register the re-export
-                                    let reexport_id =
-                                        ClassId::new(module_path.clone(), exported_name.clone());
-                                    reexports_to_add.push((reexport_id, original_id));
-                                }
-                            }
-                        }
-                        Import::RelativeFrom {
-                            level,
-                            module: rel_module,
-                            names,
-                        } => {
-                            // Resolve the relative import
-                            let is_package = self.packages.contains(module_path);
-                            if let Some(base) = crate::utils::resolve_relative_import_base(
-                                module_path,
-                                *level,
-                                is_package,
-                            ) {
-                                for (name, alias) in names {
-                                    let exported_name = alias.as_ref().unwrap_or(name);
-
-                                    // Build the full module path
-                                    let original_module = if let Some(m) = rel_module {
-                                        if base.is_empty() {
-                                            m.clone()
-                                        } else {
-                                            format!("{base}.{m}")
-                                        }
-                                    } else {
-                                        base.clone()
-                                    };
-
-                                    let original_id = ClassId::new(original_module, name.clone());
-
-                                    // Check if the class exists directly or as a re-export
-                                    // (we'll resolve the chain later)
-                                    if self.classes.contains_key(&original_id)
-                                        || self.re_exports.contains_key(&original_id)
-                                    {
-                                        let reexport_id = ClassId::new(
-                                            module_path.clone(),
-                                            exported_name.clone(),
-                                        );
-                                        reexports_to_add.push((reexport_id, original_id));
-                                    }
-                                }
-                            }
-                        }
-                        Import::Module { .. } => {
-                            // Module imports don't re-export classes
-                        }
-                    }
-                }
-            }
-
-            // Add all the re-exports
-            for (reexport_id, original_id) in reexports_to_add {
-                // Only add if it's new
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    self.re_exports.entry(reexport_id)
-                {
-                    e.insert(original_id);
-                    changed = true;
-                }
-            }
-        }
-    }
-
-    /// Adds a class definition to the registry.
-    fn add_class(&mut self, class: ClassDefinition) {
-        let id = ClassId::new(class.module_path, class.name.clone());
-
-        let info = ClassInfo {
-            file_path: class.file_path,
-            bases: class.bases,
+    /// This method handles the complexity of Python's import system, including:
+    /// - Direct class references within the same module
+    /// - Classes imported from other modules
+    /// - Classes re-exported through `__init__.py` files
+    /// - Attribute-style class references (e.g., "module.Class")
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Check if the class exists directly in the specified module
+    /// 2. If not, consult the module's imports to resolve the name:
+    ///    - Match against `imported_as` names from import statements
+    ///    - Substitute with the actual `imported_item` path
+    /// 3. Parse the resolved name to find the defining module:
+    ///    - Try progressively shorter prefixes (e.g., "a.b.c" → "a.b" → "a")
+    ///    - Stop when we find a module that exists
+    /// 4. Recursively resolve the remaining name within that module
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - The module path providing the context for resolution
+    /// * `name` - The class name to resolve (may include dots for attribute access)
+    ///
+    /// # Returns
+    ///
+    /// The resolved `ClassId` if the class can be found, or `None` if resolution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// # In module "zoo":
+    /// from animals import Dog
+    /// class Puppy(Dog):  # Resolves "Dog" to ClassId { module: "animals", name: "Dog" }
+    ///     pass
+    /// ```
+    pub fn resolve_class(&self, module: &str, name: &str) -> Option<ClassId> {
+        // First, check for a direct class definition in this module
+        let direct_id = ClassId {
+            module: module.to_string(),
+            name: name.to_string(),
         };
+        if self.classes.contains_key(&direct_id) {
+            return Some(direct_id);
+        }
 
-        // Add to name index
-        self.name_index
-            .entry(class.name)
-            .or_default()
-            .push(id.clone());
+        // Not found directly - use imports to resolve the reference
+        let imports = self.imports.get(module)?;
 
-        // Add to main registry
-        self.classes.insert(id, info);
-    }
+        // Substitute imported names with their actual module paths
+        // Example: If "Dog" is imported as "from animals import Dog",
+        // then "Dog" becomes "animals.Dog"
+        let mut resolved_name = name.to_string();
 
-    /// Finds all classes with a given name.
-    pub fn find_by_name(&self, name: &str) -> Option<&Vec<ClassId>> {
-        self.name_index.get(name)
-    }
-
-    /// Gets class info by ClassId.
-    pub fn get(&self, id: &ClassId) -> Option<&ClassInfo> {
-        self.classes.get(id)
-    }
-
-    /// Resolves a ClassId through re-exports to find the canonical ClassId.
-    /// If the given ClassId is a re-export, follows the chain to find the original.
-    /// Otherwise returns the input ClassId if it exists in the registry.
-    ///
-    /// This is the public API for resolving re-exports.
-    pub fn resolve_class_through_reexports(&self, id: &ClassId) -> Option<ClassId> {
-        self.resolve_through_reexports(id)
-    }
-
-    /// Internal method to resolve through re-exports.
-    fn resolve_through_reexports(&self, id: &ClassId) -> Option<ClassId> {
-        let mut current = id.clone();
-        let mut visited = std::collections::HashSet::new();
-
-        // Follow the re-export chain
-        loop {
-            // Prevent infinite loops
-            if visited.contains(&current) {
+        for import in imports {
+            if name == import.imported_as {
+                // Exact match: "Dog" → "animals.Dog"
+                resolved_name = import.imported_item.clone();
                 break;
-            }
-            visited.insert(current.clone());
-
-            // Check if this is a re-export
-            if let Some(original) = self.re_exports.get(&current) {
-                current = original.clone();
-            } else {
-                // No more re-exports, check if this exists
-                if self.classes.contains_key(&current) {
-                    return Some(current);
-                }
+            } else if let Some(remainder) = name.strip_prefix(&format!("{}.", import.imported_as)) {
+                // Prefix match: "Dog.Puppy" → "animals.Dog.Puppy"
+                resolved_name = format!("{}.{}", import.imported_item, remainder);
                 break;
             }
         }
 
-        None
-    }
+        // Parse the resolved name to find the defining module and class
+        // Example: "animals.Dog" needs to be split into module "animals" and class "Dog"
+        let parts: Vec<&str> = resolved_name.split('.').collect();
 
-    /// Returns all class IDs in the registry.
-    pub fn all_class_ids(&self) -> Vec<ClassId> {
-        self.classes.keys().cloned().collect()
-    }
+        // Try each possible split point from longest to shortest prefix
+        // This handles cases like "a.b.c.Class" where "a.b.c" might be the module
+        for i in (1..=parts.len()).rev() {
+            let module_candidate = parts[..i].join(".");
 
-    /// Resolves a base class reference to a ClassId.
-    ///
-    /// Given a base class reference in a class definition, determine which
-    /// actual class it refers to based on imports and available classes.
-    pub fn resolve_base(&self, base: &BaseClass, context_module: &str) -> Option<ClassId> {
-        match base {
-            BaseClass::Simple(name) => {
-                // Look up the name in imports for this module
-                if let Some(imports) = self.imports.get(context_module) {
-                    let is_package = self.packages.contains(context_module);
-                    if let Some(qualified) =
-                        crate::utils::resolve_name(name, imports, context_module, is_package)
-                    {
-                        // The import tells us it's from a specific module
-                        // Try to find a class with this name in that module
-                        return self.find_class_by_qualified_name(&qualified);
-                    }
-                }
-
-                // Not imported - might be in the same module
-                let id = ClassId::new(context_module.to_string(), name.clone());
-                if let Some(resolved) = self.resolve_through_reexports(&id) {
-                    return Some(resolved);
-                }
-
-                // Try to find by name alone (if unambiguous)
-                let matches = self.find_by_name(name)?;
-                if matches.len() == 1 {
-                    return Some(matches[0].clone());
-                }
-
-                None
-            }
-            BaseClass::Attribute(parts) => {
-                // For attribute references like `module.Class`, we need to figure out
-                // what `module` refers to based on imports.
-
-                if parts.len() < 2 {
+            if self.modules.contains_key(&module_candidate) {
+                if i == parts.len() {
+                    // The entire resolved name is just a module, not a class
                     return None;
                 }
 
-                // The last part is the class name, everything before is the module/package
-                let class_name = parts.last().unwrap();
+                // Found the module! The remainder is the class name within it
+                let remainder = parts[i..].join(".");
 
-                // Check if this is a fully qualified reference
-                // Try progressively shorter module paths
-                for i in (0..parts.len() - 1).rev() {
-                    let module_path = parts[..=i].join(".");
-                    let _remaining_parts = &parts[i + 1..];
-
-                    // Check if this module path matches an import
-                    if let Some(imports) = self.imports.get(context_module) {
-                        let is_package = self.packages.contains(context_module);
-                        if let Some(resolved) = crate::utils::resolve_name(
-                            &parts[0],
-                            imports,
-                            context_module,
-                            is_package,
-                        ) {
-                            // Build the full path
-                            let full_module = if parts.len() > 2 {
-                                format!("{}.{}", resolved, parts[1..parts.len() - 1].join("."))
-                            } else {
-                                resolved
-                            };
-
-                            let id = ClassId::new(full_module, class_name.to_string());
-                            if let Some(resolved) = self.resolve_through_reexports(&id) {
-                                return Some(resolved);
-                            }
-                        }
-                    }
-
-                    // Try as a direct module path
-                    let id = ClassId::new(module_path, class_name.to_string());
-                    if let Some(resolved) = self.resolve_through_reexports(&id) {
-                        return Some(resolved);
-                    }
-                }
-
-                None
-            }
-        }
-    }
-
-    /// Finds a class by its qualified name (e.g., "foo.bar.ClassName").
-    fn find_class_by_qualified_name(&self, qualified: &str) -> Option<ClassId> {
-        // Split into module path and class name
-        let parts: Vec<&str> = qualified.split('.').collect();
-        if parts.is_empty() {
-            return None;
-        }
-
-        let class_name = parts.last().unwrap();
-
-        // Try progressively shorter module paths
-        for i in (0..parts.len() - 1).rev() {
-            let module_path = parts[..=i].join(".");
-            let id = ClassId::new(module_path, class_name.to_string());
-            if let Some(resolved) = self.resolve_through_reexports(&id) {
-                return Some(resolved);
+                // Recursively resolve in case the class itself is re-exported
+                return self.resolve_class(&module_candidate, &remainder);
             }
         }
 
+        // Unable to resolve this class reference
         None
-    }
-
-    /// Returns the number of classes in the registry.
-    pub fn len(&self) -> usize {
-        self.classes.len()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::ClassDefinition;
-
-    #[test]
-    fn test_add_and_find_class() {
-        let registry = ClassRegistry::new(vec![ParsedFile {
-            module_path: "animals".to_string(),
-            classes: vec![ClassDefinition {
-                name: "Dog".to_string(),
-                module_path: "animals".to_string(),
-                file_path: PathBuf::from("animals.py"),
-                bases: vec![],
-            }],
-            imports: vec![],
-            is_package: false,
-        }]);
-
-        // Find by name only
-        let matches = registry.find_by_name("Dog").unwrap();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].class_name, "Dog");
-    }
-
-    #[test]
-    fn test_ambiguous_class_name() {
-        let registry = ClassRegistry::new(vec![
-            ParsedFile {
-                module_path: "zoo".to_string(),
-                classes: vec![ClassDefinition {
-                    name: "Animal".to_string(),
-                    module_path: "zoo".to_string(),
-                    file_path: PathBuf::from("zoo.py"),
-                    bases: vec![],
-                }],
-                imports: vec![],
-                is_package: false,
-            },
-            ParsedFile {
-                module_path: "farm".to_string(),
-                classes: vec![ClassDefinition {
-                    name: "Animal".to_string(),
-                    module_path: "farm".to_string(),
-                    file_path: PathBuf::from("farm.py"),
-                    bases: vec![],
-                }],
-                imports: vec![],
-                is_package: false,
-            },
-        ]);
-
-        // Should find both
-        let matches = registry.find_by_name("Animal").unwrap();
-        assert_eq!(matches.len(), 2);
-    }
-
-    #[test]
-    fn test_simple_reexport() {
-        use crate::parser::{Import, ParsedFile};
-
-        let registry = ClassRegistry::new(vec![
-            // Define a class in base module
-            ParsedFile {
-                module_path: "mypackage.base".to_string(),
-                classes: vec![ClassDefinition {
-                    name: "Animal".to_string(),
-                    module_path: "mypackage.base".to_string(),
-                    file_path: PathBuf::from("mypackage/base.py"),
-                    bases: vec![],
-                }],
-                imports: vec![],
-                is_package: false,
-            },
-            // Re-export it from __init__.py
-            ParsedFile {
-                module_path: "mypackage".to_string(),
-                classes: vec![],
-                imports: vec![Import::RelativeFrom {
-                    level: 1,
-                    module: Some("base".to_string()),
-                    names: vec![("Animal".to_string(), None)],
-                }],
-                is_package: true,
-            },
-        ]);
-
-        // Should be able to find it via the re-exported path
-        let id = ClassId::new("mypackage".to_string(), "Animal".to_string());
-        let resolved = registry.resolve_through_reexports(&id);
-        assert!(resolved.is_some());
-        let resolved = resolved.unwrap();
-        assert_eq!(resolved.module_path, "mypackage.base");
-        assert_eq!(resolved.class_name, "Animal");
-    }
-
-    #[test]
-    fn test_transitive_reexport() {
-        use crate::parser::{Import, ParsedFile};
-
-        let registry = ClassRegistry::new(vec![
-            // Define a class in _base module
-            ParsedFile {
-                module_path: "pkg._nodes._base".to_string(),
-                classes: vec![ClassDefinition {
-                    name: "Node".to_string(),
-                    module_path: "pkg._nodes._base".to_string(),
-                    file_path: PathBuf::from("pkg/_nodes/_base.py"),
-                    bases: vec![],
-                }],
-                imports: vec![],
-                is_package: false,
-            },
-            // Re-export from _nodes/__init__.py
-            ParsedFile {
-                module_path: "pkg._nodes".to_string(),
-                classes: vec![],
-                imports: vec![Import::RelativeFrom {
-                    level: 1,
-                    module: Some("_base".to_string()),
-                    names: vec![("Node".to_string(), None)],
-                }],
-                is_package: true,
-            },
-            // Re-export from pkg/__init__.py
-            ParsedFile {
-                module_path: "pkg".to_string(),
-                classes: vec![],
-                imports: vec![Import::RelativeFrom {
-                    level: 1,
-                    module: Some("_nodes".to_string()),
-                    names: vec![("Node".to_string(), None)],
-                }],
-                is_package: true,
-            },
-        ]);
-
-        // Should be able to find it via the top-level re-exported path
-        let id = ClassId::new("pkg".to_string(), "Node".to_string());
-        let resolved = registry.resolve_through_reexports(&id);
-        assert!(resolved.is_some());
-        let resolved = resolved.unwrap();
-        assert_eq!(resolved.module_path, "pkg._nodes._base");
-        assert_eq!(resolved.class_name, "Node");
-
-        // Should also work via the intermediate path
-        let id = ClassId::new("pkg._nodes".to_string(), "Node".to_string());
-        let resolved = registry.resolve_through_reexports(&id);
-        assert!(resolved.is_some());
-        let resolved = resolved.unwrap();
-        assert_eq!(resolved.module_path, "pkg._nodes._base");
-    }
-
-    #[test]
-    fn test_reexport_with_inheritance() {
-        use crate::parser::{BaseClass, Import, ParsedFile};
-
-        let registry = ClassRegistry::new(vec![
-            // Define Animal in base module
-            ParsedFile {
-                module_path: "animals.base".to_string(),
-                classes: vec![ClassDefinition {
-                    name: "Animal".to_string(),
-                    module_path: "animals.base".to_string(),
-                    file_path: PathBuf::from("animals/base.py"),
-                    bases: vec![],
-                }],
-                imports: vec![],
-                is_package: false,
-            },
-            // Re-export Animal from animals/__init__.py
-            ParsedFile {
-                module_path: "animals".to_string(),
-                classes: vec![],
-                imports: vec![Import::RelativeFrom {
-                    level: 1,
-                    module: Some("base".to_string()),
-                    names: vec![("Animal".to_string(), None)],
-                }],
-                is_package: true,
-            },
-            // Define Dog that inherits from re-exported Animal
-            ParsedFile {
-                module_path: "pets".to_string(),
-                classes: vec![ClassDefinition {
-                    name: "Dog".to_string(),
-                    module_path: "pets".to_string(),
-                    file_path: PathBuf::from("pets.py"),
-                    bases: vec![BaseClass::Simple("Animal".to_string())],
-                }],
-                imports: vec![Import::From {
-                    module: "animals".to_string(),
-                    names: vec![("Animal".to_string(), None)],
-                }],
-                is_package: false,
-            },
-        ]);
-
-        // Resolve Dog's base class
-        let dog_info = registry
-            .get(&ClassId::new("pets".to_string(), "Dog".to_string()))
-            .unwrap();
-        let base = &dog_info.bases[0];
-        let resolved_base = registry.resolve_base(base, "pets");
-
-        assert!(resolved_base.is_some());
-        let resolved_base = resolved_base.unwrap();
-        assert_eq!(resolved_base.module_path, "animals.base");
-        assert_eq!(resolved_base.class_name, "Animal");
     }
 }

@@ -21,18 +21,18 @@
 //! # }
 //! ```
 
-pub(crate) mod discovery;
-pub(crate) mod error;
-pub(crate) mod graph;
-pub(crate) mod parser;
-pub(crate) mod registry;
-pub(crate) mod utils;
+pub mod discovery;
+pub mod error;
+pub mod graph;
+pub mod parser;
+pub mod registry;
 
 use std::path::PathBuf;
 
 pub use error::{Error, Result};
 use graph::InheritanceGraph;
-use registry::{ClassId, ClassRegistry};
+
+use crate::registry::Registry;
 
 /// A reference to a Python class.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,8 +73,7 @@ impl ClassReference {
 /// # }
 /// ```
 pub struct SubclassFinder {
-    root_dir: PathBuf,
-    registry: ClassRegistry,
+    registry: Registry,
     graph: InheritanceGraph,
 }
 
@@ -111,17 +110,12 @@ impl SubclassFinder {
             })
             .collect();
 
-        // Build registry from parsed files
-        let registry = ClassRegistry::new(parsed_files);
+        let registry = Registry::build(&parsed_files)?;
 
         // Build the inheritance graph
-        let graph = graph::InheritanceGraph::build(&registry);
+        let graph = InheritanceGraph::build(&registry);
 
-        Ok(Self {
-            root_dir,
-            registry,
-            graph,
-        })
+        Ok(Self { registry, graph })
     }
 
     /// Finds all transitive subclasses of a given class.
@@ -166,20 +160,59 @@ impl SubclassFinder {
         module_path: Option<&str>,
     ) -> Result<Vec<ClassReference>> {
         // Find the target class
-        let target_id = self.find_target_class(class_name, module_path)?;
+        let target_id = if let Some(module) = module_path {
+            // Module specified - look for class in that module (including re-exports)
+            if let Some(resolved_id) = self.registry.resolve_class(module, class_name) {
+                resolved_id
+            } else {
+                return Err(Error::ClassNotFound {
+                    name: class_name.to_string(),
+                    module_path: Some(module.to_string()),
+                });
+            }
+        } else {
+            // No module specified - search for class by name
+            let mut matches = Vec::new();
+            for class_id in self.registry.classes.keys() {
+                if class_id.name == class_name {
+                    matches.push(class_id.clone());
+                }
+            }
 
-        // Find all subclasses
+            match matches.len() {
+                0 => {
+                    return Err(Error::ClassNotFound {
+                        name: class_name.to_string(),
+                        module_path: None,
+                    });
+                }
+                1 => matches.into_iter().next().unwrap(),
+                _ => {
+                    let candidates: Vec<String> =
+                        matches.iter().map(|id| id.module.clone()).collect();
+                    return Err(Error::AmbiguousClassName {
+                        name: class_name.to_string(),
+                        candidates,
+                    });
+                }
+            }
+        };
+
+        // Find all subclasses using the graph
         let subclass_ids = self.graph.find_all_subclasses(&target_id);
 
-        // Convert to ClassReferences
+        // Convert to ClassReference
         let mut results: Vec<ClassReference> = subclass_ids
             .into_iter()
             .filter_map(|id| {
-                self.registry.get(&id).map(|info| ClassReference {
-                    class_name: id.class_name.clone(),
-                    module_path: id.module_path.clone(),
-                    file_path: info.file_path.clone(),
-                })
+                self.registry
+                    .modules
+                    .get(&id.module)
+                    .map(|metadata| ClassReference {
+                        class_name: id.name.clone(),
+                        module_path: id.module.clone(),
+                        file_path: metadata.file_path.clone(),
+                    })
             })
             .collect();
 
@@ -193,63 +226,8 @@ impl SubclassFinder {
         Ok(results)
     }
 
-    /// Finds the ClassId for the target class.
-    fn find_target_class(&self, class_name: &str, module_path: Option<&str>) -> Result<ClassId> {
-        // If module path provided, look for exact match or re-export
-        if let Some(module) = module_path {
-            let id = ClassId::new(module.to_string(), class_name.to_string());
-
-            // Try direct lookup first
-            if self.registry.get(&id).is_some() {
-                return Ok(id);
-            }
-
-            // Try resolving through re-exports
-            if let Some(resolved) = self.registry.resolve_class_through_reexports(&id) {
-                return Ok(resolved);
-            }
-
-            return Err(Error::ClassNotFound {
-                name: class_name.to_string(),
-                module_path: Some(module.to_string()),
-            });
-        }
-
-        // Otherwise find by name
-        let matches = self
-            .registry
-            .find_by_name(class_name)
-            .filter(|ids| !ids.is_empty())
-            .ok_or_else(|| Error::ClassNotFound {
-                name: class_name.to_string(),
-                module_path: None,
-            })?;
-
-        match matches.len() {
-            1 => Ok(matches[0].clone()),
-            _ => {
-                let candidates = matches.iter().map(|id| id.module_path.clone()).collect();
-                Err(Error::AmbiguousClassName {
-                    name: class_name.to_string(),
-                    candidates,
-                })
-            }
-        }
-    }
-
     /// Returns the number of classes found in the codebase.
     pub fn class_count(&self) -> usize {
-        self.registry.len()
+        self.registry.classes.len()
     }
-
-    /// Returns the root directory being searched.
-    pub fn root_dir(&self) -> &PathBuf {
-        &self.root_dir
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    // Integration tests will be in tests/ directory
 }

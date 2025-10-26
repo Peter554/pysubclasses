@@ -661,3 +661,95 @@ class C(testpkg.b.testpkg.a.A): ...
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_reexport_not_via_init() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    temp.child("testpkg/a.py")
+        .write_str(
+            r#"
+class A: ...
+"#,
+        )
+        .unwrap();
+
+    temp.child("testpkg/b.py")
+        .write_str(
+            r#"
+from testpkg.a import A
+
+class B(A): ...
+"#,
+        )
+        .unwrap();
+
+    temp.child("testpkg/c.py")
+        .write_str(
+            r#"
+from testpkg.b import A
+
+class C(A): ...
+"#,
+        )
+        .unwrap();
+
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("A")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 2 subclass(es) of 'A'"))
+        .stdout(predicate::str::contains("B"))
+        .stdout(predicate::str::contains("C"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_reexport_not_via_init_pass_reexport_module() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    temp.child("testpkg/a.py")
+        .write_str(
+            r#"
+class A: ...
+"#,
+        )
+        .unwrap();
+
+    temp.child("testpkg/b.py")
+        .write_str(
+            r#"
+from testpkg.a import A
+
+class B(A): ...
+"#,
+        )
+        .unwrap();
+
+    temp.child("testpkg/c.py")
+        .write_str(
+            r#"
+from testpkg.b import A
+
+class C(A): ...
+"#,
+        )
+        .unwrap();
+
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("A")
+        .arg("--directory")
+        .arg(temp.path())
+        .arg("--module")
+        .arg("testpkg.b")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 2 subclass(es) of 'A'"))
+        .stdout(predicate::str::contains("B"))
+        .stdout(predicate::str::contains("C"));
+
+    temp.close().unwrap();
+}
