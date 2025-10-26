@@ -166,12 +166,12 @@ pub fn parse_with_cache(
     // Save updated cache
     if cache_misses > 0 {
         if let Err(e) = cache.save(&cache_path) {
-            eprintln!("Warning: Failed to save cache: {e}");
+            log::warn!("Failed to save cache: {e}");
         }
     }
 
     if cache_hits > 0 || cache_misses > 0 {
-        eprintln!("Cache: {cache_hits} hits, {cache_misses} misses");
+        log::info!("Cache: {cache_hits} hits, {cache_misses} misses");
     }
 
     Ok(results)

@@ -133,7 +133,7 @@ impl SubclassFinder {
             .filter_map(|result| match result {
                 Ok(parsed) => Some(parsed),
                 Err(e) => {
-                    eprintln!("Warning: {e}");
+                    log::warn!("{e}");
                     None
                 }
             })

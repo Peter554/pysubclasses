@@ -179,7 +179,7 @@ fn test_verbose_output() {
     cmd.arg("Animal")
         .arg("--directory")
         .arg(temp.path())
-        .arg("--verbose")
+        .env("RUST_LOG", "debug")
         .assert()
         .success()
         .stderr(predicate::str::contains("Searching for Python files"))
