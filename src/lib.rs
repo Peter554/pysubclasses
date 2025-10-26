@@ -114,6 +114,8 @@ impl SubclassFinder {
         exclude_dirs: Vec<PathBuf>,
         use_cache: bool,
     ) -> Result<Self> {
+        let root_dir = root_dir.canonicalize()?;
+
         // Discover all Python files
         let python_files =
             discovery::discover_python_files_with_exclusions(&root_dir, &exclude_dirs)?;
