@@ -9,7 +9,6 @@ use crate::{
     parser::{self, ParsedFile},
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
@@ -19,7 +18,7 @@ use std::{
 };
 
 /// Metadata for a cached file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
 struct CacheEntry {
     /// Last modified time of the source file
     mtime: SystemTime,
@@ -30,7 +29,7 @@ struct CacheEntry {
 }
 
 /// The cache structure storing all cached parse results.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, bincode::Encode, bincode::Decode)]
 struct Cache {
     /// Version of the cache format (for future compatibility)
     version: u32,
@@ -54,7 +53,9 @@ impl Cache {
         let mut decoder = GzDecoder::new(file);
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed).ok()?;
-        bincode::deserialize(&decompressed).ok()
+        bincode::decode_from_slice(&decompressed, bincode::config::standard())
+            .ok()
+            .map(|(cache, _)| cache)
     }
 
     fn save(&self, cache_path: &Path) -> Result<()> {
@@ -63,7 +64,8 @@ impl Cache {
         }
 
         // Serialize to bytes
-        let data = bincode::serialize(self).map_err(std::io::Error::other)?;
+        let data = bincode::encode_to_vec(self, bincode::config::standard())
+            .map_err(std::io::Error::other)?;
 
         // Compress and write
         let file = fs::File::create(cache_path)?;
