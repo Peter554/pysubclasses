@@ -124,15 +124,15 @@ pub fn parse_with_cache(
 
     // First pass: check cache
     for file_path in python_files {
-        if let Some((mtime, size)) = get_file_metadata(file_path) {
-            if let Some(entry) = cache.entries.get(file_path) {
-                // Check if file has changed
-                if entry.mtime == mtime && entry.size == size {
-                    // Cache hit
-                    results.push(Ok(entry.parsed.clone()));
-                    cache_hits += 1;
-                    continue;
-                }
+        if let Some((mtime, size)) = get_file_metadata(file_path)
+            && let Some(entry) = cache.entries.get(file_path)
+        {
+            // Check if file has changed
+            if entry.mtime == mtime && entry.size == size {
+                // Cache hit
+                results.push(Ok(entry.parsed.clone()));
+                cache_hits += 1;
+                continue;
             }
         }
 
@@ -147,27 +147,27 @@ pub fn parse_with_cache(
 
         // Update cache and collect results
         for parse_result in parse_results {
-            if let Ok(parsed) = &parse_result {
-                if let Some((mtime, size)) = get_file_metadata(&parsed.file_path) {
-                    cache.entries.insert(
-                        parsed.file_path.clone(),
-                        CacheEntry {
-                            mtime,
-                            size,
-                            parsed: parsed.clone(),
-                        },
-                    );
-                }
+            if let Ok(parsed) = &parse_result
+                && let Some((mtime, size)) = get_file_metadata(&parsed.file_path)
+            {
+                cache.entries.insert(
+                    parsed.file_path.clone(),
+                    CacheEntry {
+                        mtime,
+                        size,
+                        parsed: parsed.clone(),
+                    },
+                );
             }
             results.push(parse_result);
         }
     }
 
     // Save updated cache
-    if cache_misses > 0 {
-        if let Err(e) = cache.save(&cache_path) {
-            log::warn!("Failed to save cache: {e}");
-        }
+    if cache_misses > 0
+        && let Err(e) = cache.save(&cache_path)
+    {
+        log::warn!("Failed to save cache: {e}");
     }
 
     if cache_hits > 0 || cache_misses > 0 {
