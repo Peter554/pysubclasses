@@ -21,6 +21,7 @@
 //! # }
 //! ```
 
+pub mod cache;
 pub mod discovery;
 pub mod error;
 pub mod graph;
@@ -92,11 +93,37 @@ impl SubclassFinder {
     /// - The directory cannot be read
     /// - Any Python files cannot be parsed
     pub fn new(root_dir: PathBuf) -> Result<Self> {
-        // Discover all Python files
-        let python_files = discovery::discover_python_files(&root_dir)?;
+        Self::with_options(root_dir, Vec::new(), true)
+    }
 
-        // Parse files in parallel and collect results
-        let parse_results = parser::parse_files(&root_dir, &python_files)?;
+    /// Creates a new SubclassFinder with custom options.
+    ///
+    /// # Arguments
+    ///
+    /// * `root_dir` - The root directory to search for Python files
+    /// * `exclude_dirs` - Directories to exclude from the search
+    /// * `use_cache` - Whether to use the cache for faster repeated runs
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The directory cannot be read
+    /// - Any Python files cannot be parsed
+    pub fn with_options(
+        root_dir: PathBuf,
+        exclude_dirs: Vec<PathBuf>,
+        use_cache: bool,
+    ) -> Result<Self> {
+        // Discover all Python files
+        let python_files =
+            discovery::discover_python_files_with_exclusions(&root_dir, &exclude_dirs)?;
+
+        // Parse files in parallel (with optional caching)
+        let parse_results = if use_cache {
+            cache::parse_with_cache(&root_dir, &python_files)?
+        } else {
+            parser::parse_files(&root_dir, &python_files)?
+        };
 
         // Log any parse errors and collect successful parses
         let parsed_files: Vec<_> = parse_results

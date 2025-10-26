@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 
 /// Represents a Python class definition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClassDefinition {
     /// The simple name of the class
     pub name: String,
@@ -30,14 +30,14 @@ pub struct ClassDefinition {
 /// `from a import b` => { imported_item=a.b, imported_as=b }
 /// `from a import b as c` => { imported_item=a.b, imported_as=c }
 /// `from a.b import c` => { imported_item=a.b.c, imported_as=c }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Import {
     pub imported_item: String,
     pub imported_as: String,
 }
 
 /// The result of parsing a Python file.
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParsedFile {
     /// The path of this file
     pub file_path: PathBuf,

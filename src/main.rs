@@ -32,6 +32,13 @@ struct Args {
     #[arg(short, long, default_value = ".")]
     directory: PathBuf,
 
+    /// Exclude directories from analysis (can be specified multiple times)
+    ///
+    /// Paths can be relative to the search directory or absolute.
+    /// Example: --exclude ./tests
+    #[arg(short, long)]
+    exclude: Vec<PathBuf>,
+
     /// Output format
     #[arg(short, long, value_enum, default_value = "text")]
     format: OutputFormat,
@@ -39,6 +46,10 @@ struct Args {
     /// Show additional information
     #[arg(short, long)]
     verbose: bool,
+
+    /// Disable cache (always parse all files)
+    #[arg(long)]
+    no_cache: bool,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -74,10 +85,17 @@ fn main() -> Result<()> {
 
     if args.verbose {
         eprintln!("Searching for Python files in: {}", root_dir.display());
+        if !args.exclude.is_empty() {
+            eprintln!("Excluding directories: {:?}", args.exclude);
+        }
+        if args.no_cache {
+            eprintln!("Cache disabled");
+        }
     }
 
     // Create the finder (this parses all Python files)
-    let finder = SubclassFinder::new(root_dir).context("Failed to analyze codebase")?;
+    let finder = SubclassFinder::with_options(root_dir, args.exclude, !args.no_cache)
+        .context("Failed to analyze codebase")?;
 
     if args.verbose {
         eprintln!("Found {} classes in codebase", finder.class_count());
