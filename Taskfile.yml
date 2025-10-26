@@ -1,8 +1,13 @@
 version: "3"
 
 tasks:
-  fix.fmt: cargo fmt
   fix.lint: cargo clippy --all-targets --all-features --fix --allow-staged
+  fix.fmt: cargo fmt
+
+  fix:
+    cmds:
+      - task: fix.lint
+      - task: fix.fmt
 
   check.test: cargo test --all-features
   check.lint: cargo clippy --all-targets --all-features -- -D warnings

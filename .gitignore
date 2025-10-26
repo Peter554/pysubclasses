@@ -1,3 +1,4 @@
 testpkg/
 .claude/settings.local.json
 target/
+.pysubclasses-cache

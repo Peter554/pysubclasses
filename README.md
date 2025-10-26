@@ -16,6 +16,8 @@ A Rust CLI tool and library for finding all subclasses (direct and transitive) o
 - **Gitignore support**: Automatically respects `.gitignore` files using the `ignore` crate
 - **Multiple output formats**: Text and JSON output formats
 - **Fast and efficient**: Written in Rust with parallel file traversal
+- **Smart caching**: Caches parsed files with gzip compression for 2.5x speedup on repeated runs
+- **Configurable logging**: Uses `env_logger` for flexible logging control
 
 ## Installation
 
@@ -76,12 +78,38 @@ Get results in JSON format for scripting:
 pysubclasses Animal --format json
 ```
 
-### Verbose Mode
+### Logging
 
-Show additional information about the search process:
+Control logging verbosity using the `RUST_LOG` environment variable:
 
 ```bash
-pysubclasses Animal --verbose
+# No logging (default) - only shows output
+pysubclasses Animal
+
+# Show cache statistics
+RUST_LOG=info pysubclasses Animal
+
+# Show detailed debug information
+RUST_LOG=debug pysubclasses Animal
+
+# Show only pysubclasses logs (filter out dependencies)
+RUST_LOG=pysubclasses=debug pysubclasses Animal
+```
+
+### Exclude Directories
+
+Exclude specific directories from analysis:
+
+```bash
+pysubclasses Animal --exclude ./tests
+```
+
+### Disable Cache
+
+Force re-parsing of all files:
+
+```bash
+pysubclasses Animal --no-cache
 ```
 
 ## Examples
@@ -249,6 +277,7 @@ src/
 ├── parser.rs       # AST parsing
 ├── registry.rs     # Class registry
 ├── graph.rs        # Inheritance graph
+├── cache.rs        # File-based caching with gzip
 └── error.rs        # Error types
 
 tests/

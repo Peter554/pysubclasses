@@ -24,6 +24,10 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 thiserror = "1"
 
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
 # File System
 ignore = "0.4"
 
@@ -33,6 +37,10 @@ rayon = "1"
 # Output Formatting
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Cache serialization and compression
+bincode = "2"
+flate2 = "1"
 
 [dev-dependencies]
 assert_cmd = "2"

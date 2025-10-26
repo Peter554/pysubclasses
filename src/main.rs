@@ -32,13 +32,20 @@ struct Args {
     #[arg(short, long, default_value = ".")]
     directory: PathBuf,
 
+    /// Exclude directories from analysis (can be specified multiple times)
+    ///
+    /// Paths can be relative to the search directory or absolute.
+    /// Example: --exclude ./tests
+    #[arg(short, long)]
+    exclude: Vec<PathBuf>,
+
     /// Output format
     #[arg(short, long, value_enum, default_value = "text")]
     format: OutputFormat,
 
-    /// Show additional information
-    #[arg(short, long)]
-    verbose: bool,
+    /// Disable cache (always parse all files)
+    #[arg(long)]
+    no_cache: bool,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -64,6 +71,9 @@ struct JsonClass {
 }
 
 fn main() -> Result<()> {
+    // Initialize logger
+    env_logger::init();
+
     let args = Args::parse();
 
     // Canonicalize the directory path
@@ -72,24 +82,27 @@ fn main() -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Failed to access directory: {}", args.directory.display()))?;
 
-    if args.verbose {
-        eprintln!("Searching for Python files in: {}", root_dir.display());
+    log::debug!("Searching for Python files in: {}", root_dir.display());
+    if !args.exclude.is_empty() {
+        log::debug!("Excluding directories: {:?}", args.exclude);
+    }
+    if args.no_cache {
+        log::debug!("Cache disabled");
     }
 
     // Create the finder (this parses all Python files)
-    let finder = SubclassFinder::new(root_dir).context("Failed to analyze codebase")?;
+    let finder = SubclassFinder::with_options(root_dir, args.exclude, !args.no_cache)
+        .context("Failed to analyze codebase")?;
 
-    if args.verbose {
-        eprintln!("Found {} classes in codebase", finder.class_count());
-        eprintln!(
-            "Searching for subclasses of '{}'{}\n",
-            args.class_name,
-            args.module
-                .as_ref()
-                .map(|m| format!(" in module '{m}'"))
-                .unwrap_or_default()
-        );
-    }
+    log::debug!("Found {} classes in codebase", finder.class_count());
+    log::debug!(
+        "Searching for subclasses of '{}'{}",
+        args.class_name,
+        args.module
+            .as_ref()
+            .map(|m| format!(" in module '{m}'"))
+            .unwrap_or_default()
+    );
 
     // Find subclasses
     let subclasses = finder
@@ -111,14 +124,14 @@ fn main() -> Result<()> {
 
     // Output results
     match args.format {
-        OutputFormat::Text => output_text(&args.class_name, &subclasses, args.verbose),
+        OutputFormat::Text => output_text(&args.class_name, &subclasses),
         OutputFormat::Json => output_json(&args.class_name, &args.module, &subclasses)?,
     }
 
     Ok(())
 }
 
-fn output_text(class_name: &str, subclasses: &[ClassReference], verbose: bool) {
+fn output_text(class_name: &str, subclasses: &[ClassReference]) {
     if subclasses.is_empty() {
         println!("No subclasses found for '{class_name}'");
         return;
@@ -131,16 +144,7 @@ fn output_text(class_name: &str, subclasses: &[ClassReference], verbose: bool) {
     );
 
     for class_ref in subclasses {
-        if verbose {
-            println!(
-                "  {} ({})\n    └─ {}",
-                class_ref.class_name,
-                class_ref.module_path,
-                class_ref.file_path.display()
-            );
-        } else {
-            println!("  {} ({})", class_ref.class_name, class_ref.module_path);
-        }
+        println!("  {} ({})", class_ref.class_name, class_ref.module_path);
     }
 }
 
