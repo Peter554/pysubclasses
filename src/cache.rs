@@ -8,10 +8,12 @@ use crate::{
     error::Result,
     parser::{self, ParsedFile},
 };
+use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -47,16 +49,28 @@ impl Cache {
     }
 
     fn load(cache_path: &Path) -> Option<Self> {
-        let data = fs::read(cache_path).ok()?;
-        bincode::deserialize(&data).ok()
+        // Read compressed cache file
+        let file = fs::File::open(cache_path).ok()?;
+        let mut decoder = GzDecoder::new(file);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).ok()?;
+        bincode::deserialize(&decompressed).ok()
     }
 
     fn save(&self, cache_path: &Path) -> Result<()> {
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent)?;
         }
+
+        // Serialize to bytes
         let data = bincode::serialize(self).map_err(std::io::Error::other)?;
-        fs::write(cache_path, data)?;
+
+        // Compress and write
+        let file = fs::File::create(cache_path)?;
+        let mut encoder = GzEncoder::new(file, Compression::default());
+        encoder.write_all(&data)?;
+        encoder.finish()?;
+
         Ok(())
     }
 }
