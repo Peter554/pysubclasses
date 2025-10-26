@@ -8,15 +8,6 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-/// Represents a base class reference in a class definition.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum BaseClass {
-    /// Simple name reference (e.g., `Animal`)
-    Simple(String),
-    /// Attribute reference (e.g., `module.Animal` or `package.module.Animal`)
-    Attribute(Vec<String>),
-}
-
 /// Represents a Python class definition.
 #[derive(Debug, Clone)]
 pub struct ClassDefinition {
@@ -26,29 +17,23 @@ pub struct ClassDefinition {
     pub module_path: String,
     /// The file path where the class is defined
     pub file_path: PathBuf,
-    /// The base classes this class inherits from (unresolved)
-    pub bases: Vec<BaseClass>,
+    /// The base classes this class inherits from e.g. "Foo" or "foo.Foo"
+    pub bases: Vec<String>,
 }
 
-/// Represents an import statement.
-#[derive(Debug, Clone)]
-pub enum Import {
-    /// `import foo` or `import foo.bar`
-    Module {
-        module: String,
-        alias: Option<String>,
-    },
-    /// `from foo import bar` or `from foo import bar as baz`
-    From {
-        module: String,
-        names: Vec<(String, Option<String>)>, // (name, alias)
-    },
-    /// `from .relative import foo` (relative import)
-    RelativeFrom {
-        level: usize, // Number of dots
-        module: Option<String>,
-        names: Vec<(String, Option<String>)>,
-    },
+/// An import.
+///
+/// E.g.
+/// `import a` => { imported_item=a, imported_as=a }
+/// `import a.b` => { imported_item=a.b, imported_as=a.b }
+/// `import a.b as c` => { imported_item=a.b, imported_as=c }
+/// `from a import b` => { imported_item=a.b, imported_as=b }
+/// `from a import b as c` => { imported_item=a.b, imported_as=c }
+/// `from a.b import c` => { imported_item=a.b.c, imported_as=c }
+#[derive(Debug)]
+pub struct Import {
+    pub imported_item: String,
+    pub imported_as: String,
 }
 
 /// The result of parsing a Python file.
@@ -60,7 +45,7 @@ pub struct ParsedFile {
     pub module_path: String,
     /// Class definitions found in this file
     pub classes: Vec<ClassDefinition>,
-    /// Import statements found in this file
+    /// Import statements found in this file (relative imports already resolved)
     pub imports: Vec<Import>,
     /// Whether this is a package (__init__.py file)
     pub is_package: bool,

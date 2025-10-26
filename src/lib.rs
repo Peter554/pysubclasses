@@ -25,11 +25,14 @@ pub mod discovery;
 pub mod error;
 pub mod graph;
 pub mod parser;
+pub mod registry;
 
 use std::path::PathBuf;
 
 pub use error::{Error, Result};
 use graph::InheritanceGraph;
+
+use crate::registry::Registry;
 
 /// A reference to a Python class.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +73,7 @@ impl ClassReference {
 /// # }
 /// ```
 pub struct SubclassFinder {
+    registry: Registry,
     graph: InheritanceGraph,
 }
 
@@ -106,15 +110,12 @@ impl SubclassFinder {
             })
             .collect();
 
+        let registry = Registry::build(&parsed_files)?;
+
         // Build the inheritance graph
-        let graph = graph::InheritanceGraph::build(&parsed_files);
+        let graph = InheritanceGraph::build(&registry);
 
-        Ok(Self { graph })
-    }
-
-    /// Returns the total number of classes found in the codebase.
-    pub fn class_count(&self) -> usize {
-        self.graph.classes.values().map(|v| v.len()).sum()
+        Ok(Self { registry, graph })
     }
 
     /// Finds all transitive subclasses of a given class.
@@ -158,104 +159,6 @@ impl SubclassFinder {
         class_name: &str,
         module_path: Option<&str>,
     ) -> Result<Vec<ClassReference>> {
-        // Find all classes with the given name
-        let mut candidates = Vec::new();
-        for class_ids in self.graph.classes.values() {
-            for class_id in class_ids {
-                if class_id.name == class_name {
-                    candidates.push(class_id);
-                }
-            }
-        }
-
-        // Filter by module path if provided
-        let root_class = if let Some(module) = module_path {
-            // Try exact match first
-            let exact_match = candidates.iter().find(|c| c.module == module).copied();
-
-            if let Some(class_id) = exact_match {
-                class_id
-            } else {
-                // Check if the module re-exports the class
-                // Look for imports in the specified module that import this class
-                if let Some(imports) = self.graph.imports.get(module) {
-                    let mut found = None;
-                    for import in imports {
-                        if let graph::ResolvedImport::ModuleMember {
-                            module: source_module,
-                            member,
-                            ..
-                        } = import
-                        {
-                            if member == class_name {
-                                // Check if the class exists in the source module
-                                found = candidates
-                                    .iter()
-                                    .find(|c| c.module == *source_module)
-                                    .copied();
-                                if found.is_some() {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if let Some(class_id) = found {
-                        class_id
-                    } else {
-                        return Err(Error::ClassNotFound {
-                            name: class_name.to_string(),
-                            module_path: Some(module.to_string()),
-                        });
-                    }
-                } else {
-                    return Err(Error::ClassNotFound {
-                        name: class_name.to_string(),
-                        module_path: Some(module.to_string()),
-                    });
-                }
-            }
-        } else {
-            // No module path specified
-            if candidates.is_empty() {
-                return Err(Error::ClassNotFound {
-                    name: class_name.to_string(),
-                    module_path: None,
-                });
-            } else if candidates.len() > 1 {
-                let module_names: Vec<String> =
-                    candidates.iter().map(|c| c.module.clone()).collect();
-                return Err(Error::AmbiguousClassName {
-                    name: class_name.to_string(),
-                    candidates: module_names,
-                });
-            } else {
-                candidates[0]
-            }
-        };
-
-        // Find all subclasses using BFS
-        let subclass_ids = self.graph.find_all_subclasses(root_class);
-
-        // Convert ClassIds to ClassReferences
-        let mut references = Vec::new();
-        for class_id in subclass_ids {
-            if let Some(metadata) = self.graph.modules.get(&class_id.module) {
-                references.push(ClassReference {
-                    class_name: class_id.name.clone(),
-                    module_path: class_id.module.clone(),
-                    file_path: metadata.file_path.clone(),
-                });
-            }
-        }
-
-        // Sort by module path for consistent output
-        references.sort_by(|a, b| {
-            a.module_path
-                .cmp(&b.module_path)
-                .then_with(|| a.class_name.cmp(&b.class_name))
-        });
-
-        Ok(references)
+        todo!()
     }
 }
