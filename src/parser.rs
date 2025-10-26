@@ -495,4 +495,285 @@ class TopLevel(Foo):
         assert_eq!(doubly_nested.bases.len(), 1);
         assert_eq!(doubly_nested.bases[0], "Foo");
     }
+
+    // Parametric tests for import parsing
+    #[derive(Debug)]
+    struct ImportCase {
+        name: &'static str,
+        python_code: &'static str,
+        module_path: &'static str,
+        is_package: bool,
+        expected_imports: Vec<(&'static str, &'static str)>, // (imported_item, imported_as)
+    }
+
+    #[yare::parameterized(
+        absolute_import_simple = { ImportCase {
+            name: "absolute import simple",
+            python_code: "import foo",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo", "foo")],
+        } },
+        absolute_import_dotted = { ImportCase {
+            name: "absolute import dotted",
+            python_code: "import foo.bar.baz",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.bar.baz", "foo.bar.baz")],
+        } },
+        absolute_import_alias = { ImportCase {
+            name: "absolute import with alias",
+            python_code: "import foo as f",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo", "f")],
+        } },
+        absolute_import_dotted_alias = { ImportCase {
+            name: "absolute import dotted with alias",
+            python_code: "import foo.bar as fb",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.bar", "fb")],
+        } },
+        from_import_simple = { ImportCase {
+            name: "from import simple",
+            python_code: "from foo import Bar",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.Bar", "Bar")],
+        } },
+        from_import_dotted = { ImportCase {
+            name: "from import dotted",
+            python_code: "from foo.bar import Baz",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.bar.Baz", "Baz")],
+        } },
+        from_import_alias = { ImportCase {
+            name: "from import with alias",
+            python_code: "from foo import Bar as B",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.Bar", "B")],
+        } },
+        from_import_multiple = { ImportCase {
+            name: "from import multiple",
+            python_code: "from foo import Bar, Baz",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.Bar", "Bar"), ("foo.Baz", "Baz")],
+        } },
+        from_import_multiple_alias = { ImportCase {
+            name: "from import multiple with alias",
+            python_code: "from foo import Bar as B, Baz as Z",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo.Bar", "B"), ("foo.Baz", "Z")],
+        } },
+        relative_import_one_level_module = { ImportCase {
+            name: "relative import one level from module",
+            python_code: "from .sibling import Foo",
+            module_path: "pkg.mymodule",
+            is_package: false,
+            expected_imports: vec![("pkg.sibling.Foo", "Foo")],
+        } },
+        relative_import_one_level_package = { ImportCase {
+            name: "relative import one level from package",
+            python_code: "from .sibling import Foo",
+            module_path: "pkg",
+            is_package: true,
+            expected_imports: vec![("pkg.sibling.Foo", "Foo")],
+        } },
+        relative_import_two_levels_module = { ImportCase {
+            name: "relative import two levels from module",
+            python_code: "from ..other import Foo",
+            module_path: "pkg.sub.mymodule",
+            is_package: false,
+            expected_imports: vec![("pkg.other.Foo", "Foo")],
+        } },
+        relative_import_two_levels_package = { ImportCase {
+            name: "relative import two levels from package",
+            python_code: "from ..other import Foo",
+            module_path: "pkg.sub",
+            is_package: true,
+            expected_imports: vec![("pkg.other.Foo", "Foo")],
+        } },
+        relative_import_no_module = { ImportCase {
+            name: "relative import without from module",
+            python_code: "from . import Foo",
+            module_path: "pkg.mymodule",
+            is_package: false,
+            expected_imports: vec![("pkg.Foo", "Foo")],
+        } },
+        relative_import_alias = { ImportCase {
+            name: "relative import with alias",
+            python_code: "from .sibling import Foo as F",
+            module_path: "pkg.mymodule",
+            is_package: false,
+            expected_imports: vec![("pkg.sibling.Foo", "F")],
+        } },
+        multiple_imports = { ImportCase {
+            name: "multiple import statements",
+            python_code: "import foo\nfrom bar import Baz",
+            module_path: "mymodule",
+            is_package: false,
+            expected_imports: vec![("foo", "foo"), ("bar.Baz", "Baz")],
+        } },
+    )]
+    fn test_import_parsing(case: ImportCase) {
+        let temp_dir = std::env::temp_dir();
+        // Create a proper directory structure for package tests
+        let test_id = case.name.replace(' ', "_");
+        let test_root = temp_dir.join(format!("test_imports_{test_id}"));
+        std::fs::create_dir_all(&test_root).unwrap();
+
+        let temp_file = if case.is_package {
+            test_root.join("__init__.py")
+        } else {
+            test_root.join("test.py")
+        };
+
+        std::fs::write(&temp_file, case.python_code).unwrap();
+
+        let parsed = parse_file(&temp_file, case.module_path).unwrap();
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&test_root);
+
+        // Verify imports
+        assert_eq!(
+            parsed.imports.len(),
+            case.expected_imports.len(),
+            "Case '{}': expected {} imports, got {}",
+            case.name,
+            case.expected_imports.len(),
+            parsed.imports.len()
+        );
+
+        for (i, (expected_item, expected_as)) in case.expected_imports.iter().enumerate() {
+            assert_eq!(
+                parsed.imports[i].imported_item, *expected_item,
+                "Case '{}': import {} - expected imported_item '{}', got '{}'",
+                case.name, i, expected_item, parsed.imports[i].imported_item
+            );
+            assert_eq!(
+                parsed.imports[i].imported_as, *expected_as,
+                "Case '{}': import {} - expected imported_as '{}', got '{}'",
+                case.name, i, expected_as, parsed.imports[i].imported_as
+            );
+        }
+    }
+
+    // Parametric tests for base class extraction
+    #[derive(Debug)]
+    struct BaseClassCase {
+        name: &'static str,
+        python_code: &'static str,
+        class_name: &'static str,
+        expected_bases: Vec<&'static str>,
+    }
+
+    #[yare::parameterized(
+        simple_base = { BaseClassCase {
+            name: "simple base class",
+            python_code: "class Foo(Bar): pass",
+            class_name: "Foo",
+            expected_bases: vec!["Bar"],
+        } },
+        attribute_base = { BaseClassCase {
+            name: "attribute base class",
+            python_code: "class Foo(module.Bar): pass",
+            class_name: "Foo",
+            expected_bases: vec!["module.Bar"],
+        } },
+        nested_attribute_base = { BaseClassCase {
+            name: "nested attribute base class",
+            python_code: "class Foo(pkg.module.Bar): pass",
+            class_name: "Foo",
+            expected_bases: vec!["pkg.module.Bar"],
+        } },
+        multiple_bases_simple = { BaseClassCase {
+            name: "multiple simple bases",
+            python_code: "class Foo(Bar, Baz): pass",
+            class_name: "Foo",
+            expected_bases: vec!["Bar", "Baz"],
+        } },
+        multiple_bases_mixed = { BaseClassCase {
+            name: "multiple mixed bases",
+            python_code: "class Foo(Bar, pkg.Baz): pass",
+            class_name: "Foo",
+            expected_bases: vec!["Bar", "pkg.Baz"],
+        } },
+        generic_base = { BaseClassCase {
+            name: "generic base class",
+            python_code: "class Foo(Generic[T]): pass",
+            class_name: "Foo",
+            expected_bases: vec!["Generic"],
+        } },
+        generic_with_multiple = { BaseClassCase {
+            name: "generic with multiple type params",
+            python_code: "class Foo(Dict[str, int]): pass",
+            class_name: "Foo",
+            expected_bases: vec!["Dict"],
+        } },
+        mixed_generic_and_simple = { BaseClassCase {
+            name: "mixed generic and simple",
+            python_code: "class Foo(Bar, Generic[T]): pass",
+            class_name: "Foo",
+            expected_bases: vec!["Bar", "Generic"],
+        } },
+        no_bases = { BaseClassCase {
+            name: "no base classes",
+            python_code: "class Foo: pass",
+            class_name: "Foo",
+            expected_bases: vec![],
+        } },
+        attribute_generic = { BaseClassCase {
+            name: "attribute with generic",
+            python_code: "class Foo(typing.Generic[T]): pass",
+            class_name: "Foo",
+            expected_bases: vec!["typing.Generic"],
+        } },
+    )]
+    fn test_base_class_extraction(case: BaseClassCase) {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("test_bases_{}.py", case.name));
+
+        std::fs::write(&temp_file, case.python_code).unwrap();
+
+        let parsed = parse_file(&temp_file, "test_module").unwrap();
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_file);
+
+        // Find the class
+        let class = parsed
+            .classes
+            .iter()
+            .find(|c| c.name == case.class_name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Case '{}': class '{}' not found",
+                    case.name, case.class_name
+                )
+            });
+
+        // Verify bases
+        assert_eq!(
+            class.bases.len(),
+            case.expected_bases.len(),
+            "Case '{}': expected {} bases, got {}",
+            case.name,
+            case.expected_bases.len(),
+            class.bases.len()
+        );
+
+        for (i, expected_base) in case.expected_bases.iter().enumerate() {
+            assert_eq!(
+                class.bases[i], *expected_base,
+                "Case '{}': base {} - expected '{}', got '{}'",
+                case.name, i, expected_base, class.bases[i]
+            );
+        }
+    }
 }
