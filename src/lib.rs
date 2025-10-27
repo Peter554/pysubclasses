@@ -7,12 +7,12 @@
 //! # Examples
 //!
 //! ```no_run
-//! use pysubclasses::SubclassFinder;
+//! use pysubclasses::{SubclassFinder, SubclassMode};
 //! use std::path::PathBuf;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let finder = SubclassFinder::new(PathBuf::from("./src"))?;
-//! let subclasses = finder.find_subclasses("BaseClass", None)?;
+//! let subclasses = finder.find_subclasses("BaseClass", None, SubclassMode::All)?;
 //!
 //! for class_ref in subclasses {
 //!     println!("{} ({})", class_ref.class_name, class_ref.module_path);
@@ -53,12 +53,21 @@ impl ClassReference {
     }
 }
 
+/// Mode for finding subclasses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubclassMode {
+    /// Find only direct subclasses (one level of inheritance)
+    Direct,
+    /// Find all transitive subclasses (any depth)
+    All,
+}
+
 /// The main entry point for finding Python subclasses.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use pysubclasses::SubclassFinder;
+/// use pysubclasses::{SubclassFinder, SubclassMode};
 /// use std::path::PathBuf;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -66,10 +75,10 @@ impl ClassReference {
 /// let finder = SubclassFinder::new(PathBuf::from("."))?;
 ///
 /// // Find all subclasses of "Animal"
-/// let subclasses = finder.find_subclasses("Animal", None)?;
+/// let subclasses = finder.find_subclasses("Animal", None, SubclassMode::All)?;
 ///
-/// // Find subclasses of "Animal" from a specific module
-/// let subclasses = finder.find_subclasses("Animal", Some("zoo.animals"))?;
+/// // Find direct subclasses of "Animal" from a specific module
+/// let subclasses = finder.find_subclasses("Animal", Some("zoo.animals"), SubclassMode::Direct)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -147,18 +156,19 @@ impl SubclassFinder {
         Ok(Self { registry, graph })
     }
 
-    /// Finds all transitive subclasses of a given class.
+    /// Finds subclasses of a given class with a specified mode.
     ///
     /// # Arguments
     ///
     /// * `class_name` - The simple name of the class to find subclasses for
     /// * `module_path` - Optional module path to disambiguate the class if the name
     ///   appears multiple times in the codebase
+    /// * `mode` - Whether to find only direct subclasses or all transitive subclasses
     ///
     /// # Returns
     ///
-    /// A sorted vector of all transitive subclasses. The results are sorted by
-    /// module path for consistent output.
+    /// A sorted vector of subclasses. The results are sorted by module path for
+    /// consistent output.
     ///
     /// # Errors
     ///
@@ -169,17 +179,17 @@ impl SubclassFinder {
     /// # Examples
     ///
     /// ```no_run
-    /// use pysubclasses::SubclassFinder;
+    /// use pysubclasses::{SubclassFinder, SubclassMode};
     /// use std::path::PathBuf;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let finder = SubclassFinder::new(PathBuf::from("."))?;
     ///
-    /// // Find with just the class name
-    /// let subclasses = finder.find_subclasses("Animal", None)?;
+    /// // Find all transitive subclasses
+    /// let subclasses = finder.find_subclasses("Animal", None, SubclassMode::All)?;
     ///
-    /// // Find with module path to disambiguate
-    /// let subclasses = finder.find_subclasses("Animal", Some("zoo.animals"))?;
+    /// // Find only direct subclasses
+    /// let direct = finder.find_subclasses("Animal", None, SubclassMode::Direct)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -187,6 +197,7 @@ impl SubclassFinder {
         &self,
         class_name: &str,
         module_path: Option<&str>,
+        mode: SubclassMode,
     ) -> Result<Vec<ClassReference>> {
         // Find the target class
         let target_id = if let Some(module) = module_path {
@@ -227,8 +238,11 @@ impl SubclassFinder {
             }
         };
 
-        // Find all subclasses using the graph
-        let subclass_ids = self.graph.find_all_subclasses(&target_id);
+        // Find subclasses using the graph based on the mode
+        let subclass_ids = match mode {
+            SubclassMode::Direct => self.graph.find_direct_subclasses(&target_id),
+            SubclassMode::All => self.graph.find_all_subclasses(&target_id),
+        };
 
         // Convert to ClassReference
         let mut results: Vec<ClassReference> = subclass_ids

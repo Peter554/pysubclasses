@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use pysubclasses::{ClassReference, SubclassFinder};
+use pysubclasses::{ClassReference, SubclassFinder, SubclassMode};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -43,6 +43,10 @@ struct Args {
     #[arg(short, long, value_enum, default_value = "text")]
     format: OutputFormat,
 
+    /// Subclass search mode
+    #[arg(long, value_enum, default_value = "all")]
+    mode: Mode,
+
     /// Disable cache (always parse all files)
     #[arg(long)]
     no_cache: bool,
@@ -54,6 +58,14 @@ enum OutputFormat {
     Text,
     /// JSON output
     Json,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum Mode {
+    /// Find only direct subclasses
+    Direct,
+    /// Find all transitive subclasses
+    All,
 }
 
 #[derive(Serialize)]
@@ -104,9 +116,15 @@ fn main() -> Result<()> {
             .unwrap_or_default()
     );
 
+    // Convert CLI Mode to SubclassMode
+    let mode = match args.mode {
+        Mode::Direct => SubclassMode::Direct,
+        Mode::All => SubclassMode::All,
+    };
+
     // Find subclasses
     let subclasses = finder
-        .find_subclasses(&args.class_name, args.module.as_deref())
+        .find_subclasses(&args.class_name, args.module.as_deref(), mode)
         .map_err(|e| match &e {
             pysubclasses::Error::AmbiguousClassName { name, candidates } => {
                 let formatted_candidates = candidates

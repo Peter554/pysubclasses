@@ -59,6 +59,39 @@ impl InheritanceGraph {
         Self { children }
     }
 
+    /// Finds only the direct subclasses of a given class.
+    ///
+    /// Returns classes that directly inherit from the specified root class,
+    /// without traversing further down the inheritance hierarchy.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - The class to find direct subclasses for
+    ///
+    /// # Returns
+    ///
+    /// A vector containing only the direct subclasses. The root class itself is not
+    /// included in the result.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// Given:
+    ///   class Animal: pass
+    ///   class Mammal(Animal): pass
+    ///   class Dog(Mammal): pass
+    ///   class Cat(Mammal): pass
+    ///
+    /// find_direct_subclasses(Animal) → [Mammal]
+    /// find_direct_subclasses(Mammal) → [Dog, Cat]
+    /// ```
+    pub fn find_direct_subclasses(&self, root: &ClassId) -> Vec<ClassId> {
+        self.children
+            .get(root)
+            .map(|children| children.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// Finds all transitive subclasses of a given class.
     ///
     /// Performs a breadth-first search to discover all classes that directly or

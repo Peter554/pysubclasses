@@ -753,3 +753,70 @@ class C(A): ...
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_direct_mode() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Animal -> Mammal -> Dog
+    temp.child("animals.py")
+        .write_str(
+            r#"
+class Animal:
+    pass
+
+class Mammal(Animal):
+    pass
+
+class Dog(Mammal):
+    pass
+
+class Cat(Mammal):
+    pass
+"#,
+        )
+        .unwrap();
+
+    // Test direct mode - should only get Mammal
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Animal")
+        .arg("--directory")
+        .arg(temp.path())
+        .arg("--mode")
+        .arg("direct")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 1 subclass(es) of 'Animal'"))
+        .stdout(predicate::str::contains("Mammal"))
+        .stdout(predicate::str::contains("Dog").not())
+        .stdout(predicate::str::contains("Cat").not());
+
+    // Test all mode (default) - should get Mammal, Dog, and Cat
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Animal")
+        .arg("--directory")
+        .arg(temp.path())
+        .arg("--mode")
+        .arg("all")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 3 subclass(es) of 'Animal'"))
+        .stdout(predicate::str::contains("Mammal"))
+        .stdout(predicate::str::contains("Dog"))
+        .stdout(predicate::str::contains("Cat"));
+
+    // Test direct mode on Mammal - should get Dog and Cat
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Mammal")
+        .arg("--directory")
+        .arg(temp.path())
+        .arg("--mode")
+        .arg("direct")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found 2 subclass(es) of 'Mammal'"))
+        .stdout(predicate::str::contains("Dog"))
+        .stdout(predicate::str::contains("Cat"));
+
+    temp.close().unwrap();
+}

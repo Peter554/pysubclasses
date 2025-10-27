@@ -78,6 +78,28 @@ Get results in JSON format for scripting:
 pysubclasses Animal --format json
 ```
 
+### Search Mode
+
+Control whether to find only direct subclasses or all transitive subclasses:
+
+```bash
+# Find all transitive subclasses (default)
+pysubclasses Animal --mode all
+
+# Find only direct subclasses
+pysubclasses Animal --mode direct
+```
+
+For example, given:
+```python
+class Animal: pass
+class Mammal(Animal): pass
+class Dog(Mammal): pass
+```
+
+- `--mode all` (default) would find: Mammal, Dog
+- `--mode direct` would find: Mammal (only)
+
 ### Logging
 
 Control logging verbosity using the `RUST_LOG` environment variable:
@@ -209,12 +231,12 @@ $ pysubclasses Animal --format json
 You can also use `pysubclasses` as a library in your Rust projects:
 
 ```rust
-use pysubclasses::SubclassFinder;
+use pysubclasses::{SubclassFinder, SubclassMode};
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finder = SubclassFinder::new(PathBuf::from("./src"))?;
-    let subclasses = finder.find_subclasses("BaseClass", None)?;
+    let subclasses = finder.find_subclasses("BaseClass", None, SubclassMode::All)?;
 
     for class_ref in subclasses {
         println!("{} ({})", class_ref.class_name, class_ref.module_path);
