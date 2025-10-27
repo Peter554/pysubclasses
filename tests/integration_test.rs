@@ -820,3 +820,135 @@ class Cat(Mammal):
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_find_parent_classes_direct() {
+    use pysubclasses::{SearchMode, SubclassFinder};
+
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create inheritance hierarchy: Animal -> Mammal -> Dog
+    temp.child("animals.py")
+        .write_str(
+            r#"
+class Animal:
+    pass
+
+class Mammal(Animal):
+    pass
+
+class Dog(Mammal):
+    pass
+"#,
+        )
+        .unwrap();
+
+    let finder = SubclassFinder::new(temp.path().to_path_buf()).unwrap();
+
+    // Dog's direct parent should be Mammal
+    let parents = finder
+        .find_parent_classes("Dog", Some("animals"), SearchMode::Direct)
+        .unwrap();
+    assert_eq!(parents.len(), 1);
+    assert_eq!(parents[0].class_name, "Mammal");
+    assert_eq!(parents[0].module_path, "animals");
+
+    // Mammal's direct parent should be Animal
+    let parents = finder
+        .find_parent_classes("Mammal", Some("animals"), SearchMode::Direct)
+        .unwrap();
+    assert_eq!(parents.len(), 1);
+    assert_eq!(parents[0].class_name, "Animal");
+    assert_eq!(parents[0].module_path, "animals");
+
+    // Animal should have no parents
+    let parents = finder
+        .find_parent_classes("Animal", Some("animals"), SearchMode::Direct)
+        .unwrap();
+    assert_eq!(parents.len(), 0);
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_find_parent_classes_all() {
+    use pysubclasses::{SearchMode, SubclassFinder};
+
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create inheritance hierarchy: Animal -> Mammal -> Dog
+    temp.child("animals.py")
+        .write_str(
+            r#"
+class Animal:
+    pass
+
+class Mammal(Animal):
+    pass
+
+class Dog(Mammal):
+    pass
+"#,
+        )
+        .unwrap();
+
+    let finder = SubclassFinder::new(temp.path().to_path_buf()).unwrap();
+
+    // Dog's all parents should be Mammal and Animal
+    let parents = finder
+        .find_parent_classes("Dog", Some("animals"), SearchMode::All)
+        .unwrap();
+    assert_eq!(parents.len(), 2);
+
+    let parent_names: Vec<_> = parents.iter().map(|p| p.class_name.as_str()).collect();
+    assert!(parent_names.contains(&"Mammal"));
+    assert!(parent_names.contains(&"Animal"));
+    assert!(parents.iter().all(|p| p.module_path == "animals"));
+
+    // Mammal's all parents should be just Animal
+    let parents = finder
+        .find_parent_classes("Mammal", Some("animals"), SearchMode::All)
+        .unwrap();
+    assert_eq!(parents.len(), 1);
+    assert_eq!(parents[0].class_name, "Animal");
+    assert_eq!(parents[0].module_path, "animals");
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_find_parent_classes_multiple_inheritance() {
+    use pysubclasses::{SearchMode, SubclassFinder};
+
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create multiple inheritance
+    temp.child("animals.py")
+        .write_str(
+            r#"
+class Animal:
+    pass
+
+class Walker:
+    pass
+
+class Dog(Animal, Walker):
+    pass
+"#,
+        )
+        .unwrap();
+
+    let finder = SubclassFinder::new(temp.path().to_path_buf()).unwrap();
+
+    // Dog should have both Animal and Walker as direct parents
+    let parents = finder
+        .find_parent_classes("Dog", Some("animals"), SearchMode::Direct)
+        .unwrap();
+    assert_eq!(parents.len(), 2);
+
+    let parent_names: Vec<_> = parents.iter().map(|p| p.class_name.as_str()).collect();
+    assert!(parent_names.contains(&"Animal"));
+    assert!(parent_names.contains(&"Walker"));
+
+    temp.close().unwrap();
+}
