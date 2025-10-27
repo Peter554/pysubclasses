@@ -14,7 +14,7 @@ A Rust CLI tool and library for finding all subclasses (direct and transitive) o
 - **Re-export support**: Tracks classes defined in one module but exported from another
 - **Ambiguity detection**: Detects when a class name appears in multiple modules and provides clear guidance
 - **Gitignore support**: Automatically respects `.gitignore` files using the `ignore` crate
-- **Multiple output formats**: Text and JSON output formats
+- **Multiple output formats**: Text, JSON, and Graphviz dot formats for visualization
 - **Fast and efficient**: Written in Rust with parallel file traversal
 - **Smart caching**: Caches parsed files with gzip compression for 2.5x speedup on repeated runs
 - **Configurable logging**: Uses `env_logger` for flexible logging control
@@ -77,6 +77,28 @@ Get results in JSON format for scripting:
 ```bash
 pysubclasses Animal --format json
 ```
+
+### Graphviz Dot Format
+
+Generate a graph visualization in Graphviz dot format:
+
+```bash
+# Output dot format
+pysubclasses Animal --format dot
+
+# Pipe to dot to generate an image
+pysubclasses Animal --format dot | dot -Tpng > graph.png
+pysubclasses Animal --format dot | dot -Tsvg > graph.svg
+
+# Works with both modes
+pysubclasses Animal --format dot --mode direct  # Shows only direct relationships
+pysubclasses Animal --format dot --mode all     # Shows full inheritance tree
+```
+
+The dot format includes:
+- The base class (highlighted in green)
+- All subclasses (in blue)
+- Arrows showing inheritance relationships
 
 ### Search Mode
 
@@ -231,12 +253,12 @@ $ pysubclasses Animal --format json
 You can also use `pysubclasses` as a library in your Rust projects:
 
 ```rust
-use pysubclasses::{SubclassFinder, SubclassMode};
+use pysubclasses::{SubclassFinder, SearchMode};
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let finder = SubclassFinder::new(PathBuf::from("./src"))?;
-    let subclasses = finder.find_subclasses("BaseClass", None, SubclassMode::All)?;
+    let subclasses = finder.find_subclasses("BaseClass", None, SearchMode::All)?;
 
     for class_ref in subclasses {
         println!("{} ({})", class_ref.class_name, class_ref.module_path);

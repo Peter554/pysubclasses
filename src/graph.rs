@@ -10,12 +10,15 @@ use crate::registry::{ClassId, Registry};
 
 /// An inheritance graph representing parent-child relationships between classes.
 ///
-/// This structure maps each class to the set of classes that directly inherit from it.
-/// The graph can be used to efficiently find all descendants of a given class using
-/// breadth-first search.
+/// This structure maps each class to the set of classes that directly inherit from it,
+/// and also maintains the reverse mapping for efficient parent lookup.
+/// The graph can be used to efficiently find all descendants or ancestors of a given
+/// class using breadth-first search.
 pub struct InheritanceGraph {
     /// Maps parent classes to their direct children.
     pub children: HashMap<ClassId, HashSet<ClassId>>,
+    /// Maps child classes to their direct parents.
+    parents: HashMap<ClassId, HashSet<ClassId>>,
 }
 
 impl InheritanceGraph {
@@ -41,22 +44,29 @@ impl InheritanceGraph {
     /// 3. Skip any base classes that cannot be resolved (e.g., external dependencies)
     pub fn build(registry: &Registry) -> Self {
         let mut children: HashMap<ClassId, HashSet<ClassId>> = HashMap::new();
+        let mut parents: HashMap<ClassId, HashSet<ClassId>> = HashMap::new();
 
-        // Build parent → children edges by examining each class's bases
+        // Build parent → children and child → parents edges by examining each class's bases
         for (child_id, metadata) in &registry.classes {
             for base_name in &metadata.bases {
                 // Resolve the base class reference in this class's module context
                 if let Some(parent_id) = registry.resolve_class(&child_id.module, base_name) {
                     // Add this class as a child of its parent
                     children
-                        .entry(parent_id)
+                        .entry(parent_id.clone())
                         .or_default()
                         .insert(child_id.clone());
+
+                    // Add the parent as a parent of this class
+                    parents
+                        .entry(child_id.clone())
+                        .or_default()
+                        .insert(parent_id);
                 }
             }
         }
 
-        Self { children }
+        Self { children, parents }
     }
 
     /// Finds only the direct subclasses of a given class.
@@ -142,6 +152,94 @@ impl InheritanceGraph {
                         visited.insert(key);
                         result.push(child.clone());
                         queue.push_back(child.clone());
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Finds only the direct parent classes of a given class.
+    ///
+    /// Returns classes that the specified class directly inherits from,
+    /// without traversing further up the inheritance hierarchy.
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - The class to find direct parent classes for
+    ///
+    /// # Returns
+    ///
+    /// A vector containing only the direct parent classes.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// Given:
+    ///   class Animal: pass
+    ///   class Mammal(Animal): pass
+    ///   class Dog(Mammal): pass
+    ///
+    /// find_direct_parent_classes(Dog) → [Mammal]
+    /// find_direct_parent_classes(Mammal) → [Animal]
+    /// ```
+    pub fn find_direct_parent_classes(&self, root: &ClassId) -> Vec<ClassId> {
+        self.parents
+            .get(root)
+            .map(|parents| parents.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Finds all transitive parent classes of a given class.
+    ///
+    /// Performs a breadth-first search to discover all classes that the specified
+    /// class directly or indirectly inherits from. This includes:
+    /// - Direct parents (one level of inheritance)
+    /// - Grandparents (two levels)
+    /// - Great-grandparents, etc. (any depth)
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - The class to find parent classes for
+    ///
+    /// # Returns
+    ///
+    /// A vector containing all transitive parent classes. The root class itself is not
+    /// included in the result. The order of classes in the vector is determined by
+    /// the BFS traversal order.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// Given:
+    ///   class Animal: pass
+    ///   class Mammal(Animal): pass
+    ///   class Dog(Mammal): pass
+    ///
+    /// find_all_parent_classes(Dog) → [Mammal, Animal]
+    /// ```
+    pub fn find_all_parent_classes(&self, root: &ClassId) -> Vec<ClassId> {
+        use std::collections::VecDeque;
+
+        let mut result = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        // Initialize BFS with the root class
+        queue.push_back(root.clone());
+        visited.insert((root.module.clone(), root.name.clone()));
+
+        // BFS traversal
+        while let Some(current) = queue.pop_front() {
+            // Examine all direct parents of the current class
+            if let Some(parents) = self.parents.get(&current) {
+                for parent in parents {
+                    let key = (parent.module.clone(), parent.name.clone());
+                    if !visited.contains(&key) {
+                        visited.insert(key);
+                        result.push(parent.clone());
+                        queue.push_back(parent.clone());
                     }
                 }
             }

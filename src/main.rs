@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use pysubclasses::{ClassReference, SubclassFinder, SubclassMode};
+use pysubclasses::{ClassReference, SearchMode, SubclassFinder};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -58,6 +58,8 @@ enum OutputFormat {
     Text,
     /// JSON output
     Json,
+    /// Graphviz dot format
+    Dot,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -116,10 +118,10 @@ fn main() -> Result<()> {
             .unwrap_or_default()
     );
 
-    // Convert CLI Mode to SubclassMode
+    // Convert CLI Mode to SearchMode
     let mode = match args.mode {
-        Mode::Direct => SubclassMode::Direct,
-        Mode::All => SubclassMode::All,
+        Mode::Direct => SearchMode::Direct,
+        Mode::All => SearchMode::All,
     };
 
     // Find subclasses
@@ -144,6 +146,7 @@ fn main() -> Result<()> {
     match args.format {
         OutputFormat::Text => output_text(&args.class_name, &subclasses),
         OutputFormat::Json => output_json(&args.class_name, &args.module, &subclasses)?,
+        OutputFormat::Dot => output_dot(&args.class_name, &args.module, &subclasses, &finder)?,
     }
 
     Ok(())
@@ -186,4 +189,94 @@ fn output_json(
 
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+fn output_dot(
+    class_name: &str,
+    module_path: &Option<String>,
+    subclasses: &[ClassReference],
+    finder: &SubclassFinder,
+) -> Result<()> {
+    use std::collections::HashSet;
+
+    // Resolve the actual base class
+    let base_class = finder
+        .resolve_class_reference(class_name, module_path.as_deref())
+        .with_context(|| format!("Failed to resolve base class '{}'", class_name))?;
+
+    // Create a set of all classes in our graph for quick lookup
+    let mut class_set = HashSet::new();
+    class_set.insert((
+        base_class.class_name.clone(),
+        base_class.module_path.clone(),
+    ));
+    for subclass in subclasses {
+        class_set.insert((subclass.class_name.clone(), subclass.module_path.clone()));
+    }
+
+    println!("digraph {{");
+    println!("  rankdir=TB;");
+    println!("  node [shape=box, style=filled, fillcolor=lightblue];");
+    println!();
+
+    // Add base class node
+    let base_node_id = format!(
+        "{}_{}",
+        sanitize_for_dot(&base_class.module_path),
+        sanitize_for_dot(&base_class.class_name)
+    );
+    println!(
+        "  {} [label=\"{}\\n({})\", fillcolor=lightgreen];",
+        base_node_id, base_class.class_name, base_class.module_path
+    );
+
+    // Add subclass nodes
+    for subclass in subclasses {
+        let node_id = format!(
+            "{}_{}",
+            sanitize_for_dot(&subclass.module_path),
+            sanitize_for_dot(&subclass.class_name)
+        );
+        println!(
+            "  {} [label=\"{}\\n({})\"];",
+            node_id, subclass.class_name, subclass.module_path
+        );
+    }
+
+    println!();
+
+    // Add edges
+    for subclass in subclasses {
+        let parents = finder
+            .find_parent_classes(
+                &subclass.class_name,
+                Some(&subclass.module_path),
+                SearchMode::Direct,
+            )
+            .unwrap_or_default();
+
+        for parent in parents {
+            // Only draw edge if parent is in our class set (either base or another subclass)
+            if class_set.contains(&(parent.class_name.clone(), parent.module_path.clone())) {
+                let parent_node_id = format!(
+                    "{}_{}",
+                    sanitize_for_dot(&parent.module_path),
+                    sanitize_for_dot(&parent.class_name)
+                );
+                let child_node_id = format!(
+                    "{}_{}",
+                    sanitize_for_dot(&subclass.module_path),
+                    sanitize_for_dot(&subclass.class_name)
+                );
+                println!("  {} -> {};", parent_node_id, child_node_id);
+            }
+        }
+    }
+
+    println!("}}");
+    Ok(())
+}
+
+fn sanitize_for_dot(s: &str) -> String {
+    s.replace(['.', '-'], "_")
 }
