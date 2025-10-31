@@ -18,6 +18,12 @@ A Rust CLI tool and library for finding all subclasses (direct and transitive) o
 
 ## Installation
 
+### Via Homebrew
+
+```bash
+brew install peter554/tap/pysubclasses
+```
+
 ### From Source
 
 ```bash
