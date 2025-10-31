@@ -2,9 +2,6 @@
 
 [![CI](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml/badge.svg)](https://github.com/Peter554/pysubclasses/actions/workflows/ci.yml)
 
-> [!WARNING]
-> This code was AI generated (Claude Code), and has not yet been thoroughly reviewed.
-
 A Rust CLI tool and library for finding all subclasses (direct and transitive) of a Python class within a codebase.
 
 ## Features
@@ -89,16 +86,7 @@ pysubclasses Animal --format dot
 # Pipe to dot to generate an image
 pysubclasses Animal --format dot | dot -Tpng > graph.png
 pysubclasses Animal --format dot | dot -Tsvg > graph.svg
-
-# Works with both modes
-pysubclasses Animal --format dot --mode direct  # Shows only direct relationships
-pysubclasses Animal --format dot --mode all     # Shows full inheritance tree
 ```
-
-The dot format includes:
-- The base class (highlighted in green)
-- All subclasses (in blue)
-- Arrows showing inheritance relationships
 
 ### Search Mode
 
@@ -130,10 +118,10 @@ Control logging verbosity using the `RUST_LOG` environment variable:
 # No logging (default) - only shows output
 pysubclasses Animal
 
-# Show cache statistics
+# Show info level logs
 RUST_LOG=info pysubclasses Animal
 
-# Show detailed debug information
+# Show debug level logs
 RUST_LOG=debug pysubclasses Animal
 
 # Show only pysubclasses logs (filter out dependencies)
@@ -154,118 +142,6 @@ Force re-parsing of all files:
 
 ```bash
 pysubclasses Animal --no-cache
-```
-
-## Examples
-
-### Example 1: Simple Inheritance
-
-```python
-# animals.py
-class Animal:
-    pass
-
-class Mammal(Animal):
-    pass
-
-class Dog(Mammal):
-    pass
-```
-
-```bash
-$ pysubclasses Animal
-Found 2 subclass(es) of 'Animal':
-
-  Mammal (animals)
-  Dog (animals)
-```
-
-### Example 2: Ambiguous Class Names
-
-```python
-# zoo.py
-class Animal:
-    pass
-
-# farm.py
-class Animal:
-    pass
-```
-
-```bash
-$ pysubclasses Animal
-Error: Class 'Animal' found in multiple modules. Please specify --module to disambiguate:
-  - zoo
-  - farm
-
-$ pysubclasses Animal --module zoo
-Found 0 subclass(es) of 'Animal'
-```
-
-### Example 3: Imports and Re-exports
-
-```python
-# animals/_internal.py
-class Animal:
-    pass
-
-# animals/__init__.py
-from animals._internal import Animal
-
-# zoo.py
-from animals import Animal
-
-class Dog(Animal):
-    pass
-```
-
-```bash
-$ pysubclasses Animal
-Found 1 subclass(es) of 'Animal':
-
-  Dog (zoo)
-```
-
-### Example 4: JSON Output
-
-```bash
-$ pysubclasses Animal --format json
-{
-  "class_name": "Animal",
-  "module_path": null,
-  "subclasses": [
-    {
-      "class_name": "Dog",
-      "module_path": "animals",
-      "file_path": "/path/to/animals.py"
-    },
-    {
-      "class_name": "Cat",
-      "module_path": "animals",
-      "file_path": "/path/to/animals.py"
-    }
-  ]
-}
-```
-
-## Library Usage
-
-You can also use `pysubclasses` as a library in your Rust projects:
-
-```rust
-use pysubclasses::{SubclassFinder, SearchMode};
-use std::path::PathBuf;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let finder = SubclassFinder::new(PathBuf::from("./src"))?;
-    let subclasses = finder.find_subclasses("BaseClass", None, SearchMode::All)?;
-
-    for class_ref in subclasses {
-        println!("{} ({})", class_ref.class_name, class_ref.module_path);
-    }
-
-    Ok(())
-}
 ```
 
 ## How It Works
@@ -292,57 +168,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - ❌ Dynamic imports: `importlib.import_module()` cannot be statically resolved
 - ❌ Star imports: `from foo import *` requires parsing `__all__`
-- ❌ Conditional imports: Only parses first branch of conditionals
 - ❌ Runtime-generated classes: Cannot detect classes created at runtime
 - ❌ Forward references in strings: `class Foo("BaseClass")` not fully supported
-
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests
-cargo test
-
-# Run only unit tests
-cargo test --lib
-
-# Run only integration tests
-cargo test --test integration_test
-```
-
-### Project Structure
-
-```
-src/
-├── lib.rs          # Public API
-├── main.rs         # CLI implementation
-├── discovery.rs    # File discovery
-├── parser.rs       # AST parsing
-├── registry.rs     # Class registry
-├── graph.rs        # Inheritance graph
-├── cache.rs        # File-based caching with gzip
-└── error.rs        # Error types
-
-tests/
-└── integration_test.rs  # Integration tests
-```
-
-## Contributing
-
-Contributions are welcome! Please ensure all tests pass before submitting a PR:
-
-```bash
-cargo test
-cargo clippy
-cargo fmt
-```
-
-## License
-
-[Add your license here]
-
-## Acknowledgments
-
-- Uses the [ruff](https://github.com/astral-sh/ruff) Python parser
-- Uses the [ignore](https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore) crate for efficient file traversal
