@@ -1,6 +1,9 @@
 [package]
 name = "pysubclasses"
 version = "0.1.0"
+description = "Tool for finding all subclasses (direct and transitive) of a Python class within a codebase"
+repository = "https://github.com/Peter554/pysubclasses"
+license = "MIT"
 edition = "2024"
 
 [lib]
@@ -47,3 +50,8 @@ assert_cmd = "2"
 assert_fs = "1"
 predicates = "3"
 yare = "3"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
