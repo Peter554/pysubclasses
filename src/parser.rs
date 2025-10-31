@@ -357,7 +357,7 @@ fn extract_base_class(expr: &Expr) -> Option<String> {
 ///
 /// The dotted module path (e.g., `foo.bar.baz` for `root/foo/bar/baz.py`).
 /// Returns `None` if the file path cannot be converted to a module path.
-fn file_path_to_module_path(file_path: &Path, root_dir: &Path) -> Option<String> {
+pub fn file_path_to_module_path(file_path: &Path, root_dir: &Path) -> Option<String> {
     // Get the relative path from root_dir to file_path
     let rel_path = file_path.strip_prefix(root_dir).ok()?;
 

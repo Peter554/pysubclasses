@@ -952,3 +952,149 @@ class Dog(Animal, Walker):
 
     temp.close().unwrap();
 }
+
+#[test]
+fn test_module_as_relative_file_path() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create subdirectory structure
+    temp.child("zoo")
+        .child("animals.py")
+        .write_str("class Animal:\n    pass\n")
+        .unwrap();
+
+    temp.child("zoo")
+        .child("mammals.py")
+        .write_str("from zoo.animals import Animal\n\nclass Dog(Animal):\n    pass\n")
+        .unwrap();
+
+    // Test with relative file path
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Animal")
+        .arg("--module")
+        .arg("zoo/animals.py")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dog"))
+        .stdout(predicate::str::contains("zoo.mammals"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_module_as_absolute_file_path() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create subdirectory structure
+    temp.child("pkg")
+        .child("base.py")
+        .write_str("class Base:\n    pass\n")
+        .unwrap();
+
+    temp.child("pkg")
+        .child("derived.py")
+        .write_str("from pkg.base import Base\n\nclass Derived(Base):\n    pass\n")
+        .unwrap();
+
+    // Build absolute file path
+    let abs_path = temp.path().join("pkg").join("base.py");
+
+    // Test with absolute file path
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Base")
+        .arg("--module")
+        .arg(&abs_path)
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Derived"))
+        .stdout(predicate::str::contains("pkg.derived"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_module_as_init_file_path() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create package with __init__.py
+    temp.child("mypackage")
+        .child("__init__.py")
+        .write_str("class PackageClass:\n    pass\n")
+        .unwrap();
+
+    temp.child("mypackage")
+        .child("submodule.py")
+        .write_str(
+            "from mypackage import PackageClass\n\nclass SubClass(PackageClass):\n    pass\n",
+        )
+        .unwrap();
+
+    // Test with __init__.py path
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("PackageClass")
+        .arg("--module")
+        .arg("mypackage/__init__.py")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("SubClass"))
+        .stdout(predicate::str::contains("mypackage.submodule"));
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_module_file_path_not_in_directory() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    temp.child("base.py")
+        .write_str("class Animal:\n    pass\n")
+        .unwrap();
+
+    // Try to use a file path that's outside the search directory
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Animal")
+        .arg("--module")
+        .arg("/tmp/nonexistent.py")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .failure();
+
+    temp.close().unwrap();
+}
+
+#[test]
+fn test_module_dotted_path_still_works() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create subdirectory structure
+    temp.child("pkg")
+        .child("animals.py")
+        .write_str("class Animal:\n    pass\n")
+        .unwrap();
+
+    temp.child("pkg")
+        .child("dogs.py")
+        .write_str("from pkg.animals import Animal\n\nclass Dog(Animal):\n    pass\n")
+        .unwrap();
+
+    // Test with traditional dotted module path (ensure backward compatibility)
+    let mut cmd = Command::cargo_bin("pysubclasses").unwrap();
+    cmd.arg("Animal")
+        .arg("--module")
+        .arg("pkg.animals")
+        .arg("--directory")
+        .arg(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dog"))
+        .stdout(predicate::str::contains("pkg.dogs"));
+
+    temp.close().unwrap();
+}

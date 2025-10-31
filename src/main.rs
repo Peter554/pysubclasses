@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use pysubclasses::{ClassReference, SearchMode, SubclassFinder};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Find all subclasses of a Python class
 #[derive(Parser, Debug)]
@@ -20,9 +20,11 @@ struct Args {
     #[arg()]
     class_name: String,
 
-    /// Dotted module path where the class is defined (e.g., 'foo.bar')
+    /// Dotted module path where the class is defined (e.g., 'foo.bar'), or a file path
     ///
     /// Use this to disambiguate when the same class name appears in multiple modules.
+    /// Can be specified as either a dotted module path (e.g., 'foo.bar') or a file path
+    /// (absolute or relative to --directory).
     #[arg(short, long)]
     module: Option<String>,
 
@@ -96,6 +98,13 @@ fn main() -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Failed to access directory: {}", args.directory.display()))?;
 
+    // Resolve module argument (convert file path to module path if needed)
+    let module_path = if let Some(module_arg) = &args.module {
+        Some(resolve_module_argument(module_arg, &root_dir)?)
+    } else {
+        None
+    };
+
     log::debug!("Searching for Python files in: {}", root_dir.display());
     if !args.exclude.is_empty() {
         log::debug!("Excluding directories: {:?}", args.exclude);
@@ -112,7 +121,7 @@ fn main() -> Result<()> {
     log::debug!(
         "Searching for subclasses of '{}'{}",
         args.class_name,
-        args.module
+        module_path
             .as_ref()
             .map(|m| format!(" in module '{m}'"))
             .unwrap_or_default()
@@ -126,7 +135,7 @@ fn main() -> Result<()> {
 
     // Find subclasses
     let subclasses = finder
-        .find_subclasses(&args.class_name, args.module.as_deref(), mode)
+        .find_subclasses(&args.class_name, module_path.as_deref(), mode)
         .map_err(|e| match &e {
             pysubclasses::Error::AmbiguousClassName { name, candidates } => {
                 let formatted_candidates = candidates
@@ -145,11 +154,55 @@ fn main() -> Result<()> {
     // Output results
     match args.format {
         OutputFormat::Text => output_text(&args.class_name, &subclasses),
-        OutputFormat::Json => output_json(&args.class_name, &args.module, &subclasses)?,
-        OutputFormat::Dot => output_dot(&args.class_name, &args.module, &subclasses, &finder)?,
+        OutputFormat::Json => output_json(&args.class_name, &module_path, &subclasses)?,
+        OutputFormat::Dot => output_dot(&args.class_name, &module_path, &subclasses, &finder)?,
     }
 
     Ok(())
+}
+
+/// Converts a module argument (which may be a file path or module path) to a module path string.
+///
+/// # Arguments
+///
+/// * `module_arg` - The module argument from the CLI (either a dotted path or file path)
+/// * `root_dir` - The canonicalized root directory for the search
+///
+/// # Returns
+///
+/// Either the original string (if it's a dotted path) or the converted module path (if it's a file path).
+fn resolve_module_argument(module_arg: &str, root_dir: &Path) -> Result<String> {
+    // If it contains path separators, treat it as a file path
+    if module_arg.contains('/') || module_arg.contains('\\') {
+        let path = Path::new(module_arg);
+        // Convert to absolute path
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            // Make it relative to the root directory
+            root_dir.join(path)
+        };
+
+        // Canonicalize the path
+        let canonical_path = abs_path
+            .canonicalize()
+            .with_context(|| format!("Failed to access file: {}", abs_path.display()))?;
+
+        // Convert to module path
+        let module_path = pysubclasses::parser::file_path_to_module_path(&canonical_path, root_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to convert file path '{}' to module path (is it within the search directory '{}'?)",
+                    canonical_path.display(),
+                    root_dir.display()
+                )
+            })?;
+
+        Ok(module_path)
+    } else {
+        // It's already a dotted module path
+        Ok(module_arg.to_string())
+    }
 }
 
 fn output_text(class_name: &str, subclasses: &[ClassReference]) {
