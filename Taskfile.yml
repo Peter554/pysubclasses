@@ -30,11 +30,10 @@ tasks:
     cmds:
       - task: check
       - task: _check.uncommitted-changes
+      - dist build # Sanity check that build works
       - cargo bump {{.MODE}}
-      - cargo publish --all-features --dry-run --allow-dirty
       - git add --all
       - git commit -m "Bump version v$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')"
       - git tag "v$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')"
-      - cargo publish --all-features
       - git push
       - git push --tags
